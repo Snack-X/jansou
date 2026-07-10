@@ -1,0 +1,15 @@
+.DS_Store
+Thumbs.db
+
+CLAUDE.local.md
+.claude/settings.local.json
+
+__pycache__/
+*.py[co]
+.venv/
+dist/
+
+.coverage
+site/
+
+dataset/*/data

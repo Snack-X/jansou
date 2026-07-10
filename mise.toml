@@ -1,0 +1,11 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[tasks.docs]
+description = "Generate the API documentation from docstrings into site/api"
+run = "uv run pdoc -d google jansou -o site/api"
+
+[tasks.docs-serve]
+description = "Serve the API documentation with live reload"
+run = "uv run pdoc -d google jansou"
