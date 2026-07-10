@@ -4,8 +4,9 @@
 [![PyPI](https://img.shields.io/pypi/v/jansou)](https://pypi.org/project/jansou/)
 [![Python](https://img.shields.io/pypi/pyversions/jansou)](https://pypi.org/project/jansou/)
 [![Coverage](https://raw.githubusercontent.com/Snack-X/jansou/python-coverage-comment-action-data/badge.svg)](https://github.com/Snack-X/jansou/tree/python-coverage-comment-action-data)
+[![Docs](https://img.shields.io/github/deployments/Snack-X/jansou/github-pages?label=docs)](https://snack-x.github.io/jansou/)
 
-Python library for Riichi Mahjong environments and ugittilities.
+Python library for Riichi Mahjong environments and utilities.
 
 - Conversion between multiple tile notations (MPSZ, MJAI, 136)
 - Hand analysis (shanten, wait, efficiency, yaku, fu/han, score)

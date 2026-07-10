@@ -24,6 +24,7 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/Snack-X/jansou"
+Documentation = "https://snack-x.github.io/jansou/"
 Repository = "https://github.com/Snack-X/jansou"
 Issues = "https://github.com/Snack-X/jansou/issues"
 
