@@ -1,5 +1,10 @@
 # Jansou
 
+![License](https://img.shields.io/github/license/Snack-X/jansou)
+[![PyPI](https://img.shields.io/pypi/v/jansou)](https://pypi.org/project/jansou/)
+[![Python](https://img.shields.io/pypi/pyversions/jansou)](https://pypi.org/project/jansou/)
+[![Coverage](https://raw.githubusercontent.com/Snack-X/jansou/python-coverage-comment-action-data/badge.svg)](https://github.com/Snack-X/jansou/tree/python-coverage-comment-action-data)
+
 Python library for Riichi Mahjong environments and ugittilities.
 
 - Conversion between multiple tile notations (MPSZ, MJAI, 136)
