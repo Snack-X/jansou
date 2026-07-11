@@ -64,6 +64,41 @@ class TestRecording:
         assert all(any(isinstance(event, DealStart) for event in deal) for deal in env.records)
 
 
+class TestDecisionRecording:
+    def test_off_by_default(self) -> None:
+        env = Environment(Rules(), seed=1)
+        env.run([SimpleAgent() for _ in range(4)])
+        assert env.decisions == []
+
+    def test_one_list_per_deal_parallel_to_records(self) -> None:
+        env = Environment(Rules(), seed=1, record_decisions=True)
+        env.run([SimpleAgent() for _ in range(4)])
+        assert len(env.decisions) == len(env.records)
+        assert all(deal for deal in env.decisions)
+
+    def test_chosen_is_among_the_offered_actions(self) -> None:
+        env = Environment(Rules(), seed=2, record_decisions=True)
+        env.run([RandomAgent(seat) for seat in range(4)])
+        for deal in env.decisions:
+            for decision in deal:
+                assert decision.chosen in decision.actions
+
+    def test_event_index_anchors_a_record_prefix(self) -> None:
+        env = Environment(Rules(), seed=2, record_decisions=True)
+        env.run([RandomAgent(seat) for seat in range(4)])
+        for events, deal in zip(env.records, env.decisions, strict=True):
+            for decision in deal:
+                # At least DealStart has been emitted before any decision.
+                assert 1 <= decision.event_index <= len(events)
+
+    def test_same_seed_reproduces_the_decisions(self) -> None:
+        first = Environment(Rules(), seed=99, record_decisions=True)
+        first.run([RandomAgent(seat) for seat in range(4)])
+        second = Environment(Rules(), seed=99, record_decisions=True)
+        second.run([RandomAgent(seat) for seat in range(4)])
+        assert first.decisions == second.decisions
+
+
 class TestMaskingAndNotification:
     def test_agents_see_game_start_and_end(self) -> None:
         seen: list = []

@@ -46,6 +46,22 @@ class GameResult:
     ranking: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class Decision:
+    """One recorded decision point: the offer, the choice, and its anchor.
+
+    ``event_index`` is the length of the deal's event record at decision time,
+    so ``records[deal][:event_index]`` is exactly what had been emitted when
+    the decision was requested.
+    """
+
+    seat: int
+    kind: DecisionKind
+    actions: tuple[Action, ...]
+    chosen: Action
+    event_index: int
+
+
 class Environment:
     """The referee and engine for one game."""
 
@@ -55,6 +71,7 @@ class Environment:
         *,
         seed: int | None = None,
         walls: list[tuple[Tile, ...]] | None = None,
+        record_decisions: bool = False,
     ) -> None:
         """Configure a game before it is run.
 
@@ -63,11 +80,15 @@ class Environment:
             seed: The seed for wall shuffling; ``None`` for unseeded shuffles.
             walls: Predefined tile sequences, one per deal, used in order instead
                 of shuffling; ``None`` to shuffle a fresh wall each deal.
+            record_decisions: Whether to keep every decision point in
+                ``decisions`` (one list per deal, parallel to ``records``).
         """
         self.rules = rules
         self._rng = random.Random(seed)
         self._walls = list(walls) if walls is not None else None
         self.records: list[list[Event]] = []
+        self.record_decisions = record_decisions
+        self.decisions: list[list[Decision]] = []
         self.state: GameState | None = None
 
     def run(self, agents: list[Agent], names: tuple[str, ...] | None = None) -> GameResult:
@@ -104,7 +125,9 @@ class Environment:
         while True:
             state = new_deal(self.rules, self._wall(deal_index), position, scores, pool)
             self.state = state
-            outcome = play_deal(state, self._decider(agents), self._emitter(agents))
+            deal_events: list[Event] = []
+            self.records.append(deal_events)
+            outcome = play_deal(state, self._decider(agents, deal_events), self._emitter(agents, deal_events))
             scores, pool = state.scores, state.deposit_pool
             step = advance(position, outcome, scores, self.rules, in_extension=in_extension)
             deal_index += 1
@@ -124,19 +147,23 @@ class Environment:
         self._rng.shuffle(tiles)
         return Wall(tuple(tiles))
 
-    def _decider(self, agents: list[Agent]):  # noqa: ANN202 - a decide callback for the flow
+    def _decider(self, agents: list[Agent], deal_events: list[Event]):  # noqa: ANN202 - a decide callback for the flow
+        deal_decisions: list[Decision] | None = None
+        if self.record_decisions:
+            deal_decisions = []
+            self.decisions.append(deal_decisions)
+
         def decide(seat: int, kind: DecisionKind, actions: list[Action]) -> Action:
             action = agents[seat].act(seat, kind, list(actions))
             if action not in actions:
                 raise IllegalActionError(f"seat {seat} returned {action!r}, not among the offered actions")
+            if deal_decisions is not None:
+                deal_decisions.append(Decision(seat, kind, tuple(actions), action, len(deal_events)))
             return action
 
         return decide
 
-    def _emitter(self, agents: list[Agent]):  # noqa: ANN202 - an emit callback for the flow
-        deal_events: list[Event] = []
-        self.records.append(deal_events)
-
+    def _emitter(self, agents: list[Agent], deal_events: list[Event]):  # noqa: ANN202 - an emit callback for the flow
         def emit(event: Event) -> None:
             deal_events.append(event)
             for seat, agent in enumerate(agents):
