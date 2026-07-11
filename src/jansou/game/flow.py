@@ -6,15 +6,16 @@ redirected by a call. This module runs that cycle to a resolution -- a win, an
 exhaustive draw, or an abort -- applying payments, deposits, and the dealer
 repeat rule along the way.
 
-The flow is decoupled from agents: it asks for decisions through a decide
-callback and reports through an emit callback, bundled together as the deal's IO,
-so the environment supplies the agents and the recording while this module owns
-the rules.
+The flow is decoupled from agents: it reports through an emit callback and asks
+for decisions by yielding them -- deal_steps is a generator that yields each
+DecisionPoint and is resumed with the chosen action -- so the environment
+supplies the agents and the recording while this module owns the rules.
+play_deal wraps the generator for callers that prefer a decide callback.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from enum import Enum, auto, unique
 from typing import TYPE_CHECKING
@@ -109,11 +110,12 @@ class _RobMode(Enum):
 
 
 @dataclass(frozen=True)
-class _IO:
-    """The deal's decision and event channels, threaded through the flow."""
+class DecisionPoint:
+    """One pending decision, yielded by the flow and answered with an action."""
 
-    decide: Decide
-    emit: Emit
+    seat: int
+    kind: DecisionKind
+    actions: tuple[Action, ...]
 
 
 @dataclass(frozen=True)
@@ -212,9 +214,31 @@ def play_deal(state: GameState, decide: Decide, emit: Emit) -> DealOutcome:
     Returns:
         The deal's settled outcome, for the game loop to advance from.
     """
-    io = _IO(decide, emit)
+    steps = deal_steps(state, emit)
+    try:
+        point = next(steps)
+        while True:
+            point = steps.send(decide(point.seat, point.kind, list(point.actions)))
+    except StopIteration as stop:
+        return stop.value
+
+
+def deal_steps(state: GameState, emit: Emit) -> Generator[DecisionPoint, Action, DealOutcome]:
+    """Run a dealt state step by step, yielding each decision to the caller.
+
+    Args:
+        state: The dealt, ready-to-play game state.
+        emit: The callback fed every event as it happens.
+
+    Yields:
+        Each decision point; the generator must be resumed with the chosen
+        action, which is trusted to be among the offered ones.
+
+    Returns:
+        The deal's settled outcome, as the generator's return value.
+    """
     emit(_deal_start_event(state))
-    return _run(state, io)
+    return (yield from _run(state, emit))
 
 
 def _deal_start_event(state: GameState) -> DealStart:
@@ -230,7 +254,7 @@ def _deal_start_event(state: GameState) -> DealStart:
     )
 
 
-def _run(state: GameState, io: _IO) -> DealOutcome:
+def _run(state: GameState, emit: Emit) -> Generator[DecisionPoint, Action, DealOutcome]:
     """The turn cycle, from the dealer's first draw to a resolution."""
     draws = True
     rinshan = False
@@ -240,44 +264,46 @@ def _run(state: GameState, io: _IO) -> DealOutcome:
             player = state.players[seat]
             player.temporary_furiten = False
             player.drawn = state.wall.draw_live()
-            io.emit(Draw(seat, player.drawn, replacement=False))
+            emit(Draw(seat, player.drawn, replacement=False))
             rinshan = False
-        step = _act(state, io, rinshan=rinshan)
+        step = yield from _act(state, emit, rinshan=rinshan)
         if isinstance(step, _Terminal):
             return step.outcome
         draws, rinshan = step.draws, step.rinshan
 
 
-def _act(state: GameState, io: _IO, *, rinshan: bool) -> _Terminal | _Next:
+def _act(state: GameState, emit: Emit, *, rinshan: bool) -> Generator[DecisionPoint, Action, _Terminal | _Next]:
     """Resolve one self-decision into a terminal or the next step's draw flags."""
     seat = state.current_player
     actions = self_actions(state, rinshan=rinshan)
-    choice = io.decide(seat, DecisionKind.SELF, actions)
+    choice = yield DecisionPoint(seat, DecisionKind.SELF, tuple(actions))
     if isinstance(choice, Tsumo):
-        return _win_by_tsumo(state, seat, io.emit, rinshan=rinshan)
+        return _win_by_tsumo(state, seat, emit, rinshan=rinshan)
     if isinstance(choice, NineTerminals):
-        return _abortive_draw(RyuukyokuKind.NINE_TERMINALS, io.emit)
+        return _abortive_draw(RyuukyokuKind.NINE_TERMINALS, emit)
     if isinstance(choice, (ClosedKan, AddedKan, Nuki)):
-        terminal = _self_kan_or_nuki(state, seat, choice, io)
+        terminal = yield from _self_kan_or_nuki(state, seat, choice, emit)
         return terminal if terminal is not None else _Next(draws=False, rinshan=True)
-    return _handle_discard(state, seat, choice, io)
+    return (yield from _handle_discard(state, seat, choice, emit))
 
 
 # --- Kans and North extraction ------------------------------------------------
 
 
-def _self_kan_or_nuki(state: GameState, seat: int, choice: Action, io: _IO) -> _Terminal | None:
+def _self_kan_or_nuki(
+    state: GameState, seat: int, choice: Action, emit: Emit
+) -> Generator[DecisionPoint, Action, _Terminal | None]:
     """Apply a closed kan, added kan, or North, after its robbing window."""
     tile, mode = _rob_target(choice)
-    terminal = _robbing_window(state, seat, tile, mode, io)
+    terminal = yield from _robbing_window(state, seat, tile, mode, emit)
     if terminal is not None:
         return terminal
     _break_ippatsu(state)
     state.first_go_around = False
     if isinstance(choice, Nuki):
-        _complete_nuki(state, seat, io.emit)
+        _complete_nuki(state, seat, emit)
     else:
-        _complete_kan(state, seat, choice, io.emit)
+        _complete_kan(state, seat, choice, emit)
     return None
 
 
@@ -364,24 +390,26 @@ def _reveal_dora(state: GameState, emit: Emit, *, immediate: bool) -> None:
 # --- Discards and reactions ---------------------------------------------------
 
 
-def _handle_discard(state: GameState, seat: int, choice: Action, io: _IO) -> _Terminal | _Next:
+def _handle_discard(
+    state: GameState, seat: int, choice: Action, emit: Emit
+) -> Generator[DecisionPoint, Action, _Terminal | _Next]:
     """Place the discard, run its reaction window, and finalize the turn."""
     player = state.players[seat]
     tile = choice.tile
     is_riichi = isinstance(choice, Riichi)
     tsumogiri = player.drawn is not None and tile == player.drawn
     _place_discard(state, seat, tile, tsumogiri=tsumogiri, riichi=is_riichi)
-    io.emit(DiscardEvent(seat, tile, tsumogiri=tsumogiri, riichi=is_riichi))
+    emit(DiscardEvent(seat, tile, tsumogiri=tsumogiri, riichi=is_riichi))
     if is_riichi:
         state.pending_riichi = seat
     final = state.wall.live_draws_remaining == 0
-    terminal = _reaction_window(state, seat, tile, io, final=final)
+    terminal = yield from _reaction_window(state, seat, tile, emit, final=final)
     if terminal is not None:
         return terminal
     if state.current_player != seat:  # a call redirected the turn to the claimant
         drew_replacement = state.players[state.current_player].drawn is not None
         return _Next(draws=False, rinshan=drew_replacement)
-    finished = _finalize(state, io)
+    finished = yield from _finalize(state, emit)
     if finished is not None:
         return finished
     state.current_player = state.next_seat(seat)
@@ -403,18 +431,20 @@ def _place_discard(state: GameState, seat: int, tile: Tile, *, tsumogiri: bool, 
     state.post_call_restriction = frozenset()
 
 
-def _reaction_window(state: GameState, discarder: int, tile: Tile, io: _IO, *, final: bool) -> _Terminal | None:
+def _reaction_window(
+    state: GameState, discarder: int, tile: Tile, emit: Emit, *, final: bool
+) -> Generator[DecisionPoint, Action, _Terminal | None]:
     """Gather and resolve every opponent's reaction to the discard."""
     choices: dict[int, Action] = {}
     for seat in _opponents(state, discarder):
         actions = discard_reactions(state, seat, final=final)
         if not actions:
             continue
-        choice = io.decide(seat, DecisionKind.DISCARD_REACTION, actions)
+        choice = yield DecisionPoint(seat, DecisionKind.DISCARD_REACTION, tuple(actions))
         choices[seat] = choice
         if any(isinstance(action, Ron) for action in actions) and not isinstance(choice, Ron):
             _mark_passed_ron(state, seat)
-    return _resolve_reactions(state, discarder, tile, choices, io.emit)
+    return _resolve_reactions(state, discarder, tile, choices, emit)
 
 
 def _resolve_reactions(
@@ -486,7 +516,9 @@ def _kuikae_ban(choice: Action, tile: Tile) -> frozenset[TileKind]:
 # --- Robbing window -----------------------------------------------------------
 
 
-def _robbing_window(state: GameState, actor: int, tile: Tile, mode: _RobMode, io: _IO) -> _Terminal | None:
+def _robbing_window(
+    state: GameState, actor: int, tile: Tile, mode: _RobMode, emit: Emit
+) -> Generator[DecisionPoint, Action, _Terminal | None]:
     """Offer ron on a kan or North tile before the act completes."""
     ron_seats: list[int] = []
     for seat in _opponents(state, actor):
@@ -494,7 +526,7 @@ def _robbing_window(state: GameState, actor: int, tile: Tile, mode: _RobMode, io
         if not actions:
             continue
         kind = DecisionKind.NORTH_REACTION if mode is _RobMode.NORTH else DecisionKind.ROBBED_KAN
-        choice = io.decide(seat, kind, actions)
+        choice = yield DecisionPoint(seat, kind, tuple(actions))
         if isinstance(choice, Ron):
             ron_seats.append(seat)
         else:
@@ -502,7 +534,7 @@ def _robbing_window(state: GameState, actor: int, tile: Tile, mode: _RobMode, io
     if not ron_seats:
         return None
     claim = _RonClaim(actor, tile, chankan=mode is not _RobMode.NORTH)
-    return _resolve_ron(state, claim, ron_seats, io.emit)
+    return _resolve_ron(state, claim, ron_seats, emit)
 
 
 def _rob_reactions(state: GameState, seat: int, tile: Tile, mode: _RobMode) -> list[Action]:
@@ -666,20 +698,20 @@ def _kan_melds(player: PlayerState) -> int:
 # --- Finalization and draws ---------------------------------------------------
 
 
-def _finalize(state: GameState, io: _IO) -> _Terminal | None:
+def _finalize(state: GameState, emit: Emit) -> Generator[DecisionPoint, Action, _Terminal | None]:
     """Bank a pending riichi, reveal deferred dora, then check aborts and walls.
 
     Only reached when no call redirected the turn; the caller advances the seat.
     """
-    _accept_pending_riichi(state, io.emit)
+    _accept_pending_riichi(state, emit)
     if state.deferred_reveal:
-        io.emit(IndicatorReveal(state.wall.reveal_indicator()))
+        emit(IndicatorReveal(state.wall.reveal_indicator()))
         state.deferred_reveal = False
     abort = _pending_abort(state)
     if abort is not None:
-        return _abortive_draw(abort, io.emit)
+        return _abortive_draw(abort, emit)
     if state.wall.live_draws_remaining == 0:
-        return _exhaustive_draw(state, io)
+        return (yield from _exhaustive_draw(state, emit))
     return None
 
 
@@ -733,9 +765,9 @@ def _abortive_draw(kind: RyuukyokuKind, emit: Emit) -> _Terminal:
     return _Terminal(DealOutcome((), dealer_repeats=True, is_draw=True, is_abortive=True))
 
 
-def _exhaustive_draw(state: GameState, io: _IO) -> _Terminal:
+def _exhaustive_draw(state: GameState, emit: Emit) -> Generator[DecisionPoint, Action, _Terminal]:
     """End with the wall spent: tenpai payments or nagashi, then the repeat."""
-    ready = _counted_ready(state, io.decide)
+    ready = yield from _counted_ready(state)
     state.counted_ready = ready
     nagashi = _nagashi_seats(state)
     deltas = [0] * state.player_count
@@ -746,19 +778,19 @@ def _exhaustive_draw(state: GameState, io: _IO) -> _Terminal:
     for seat in range(state.player_count):
         state.scores[seat] += deltas[seat]
     revealed = tuple((seat, state.players[seat].as_hand(include_drawn=False)) for seat in sorted(ready))
-    io.emit(Ryuukyoku(kind=RyuukyokuKind.EXHAUSTIVE, revealed=revealed, counted_ready=ready))
-    io.emit(ScoreChange(tuple(deltas), tuple(state.scores)))
+    emit(Ryuukyoku(kind=RyuukyokuKind.EXHAUSTIVE, revealed=revealed, counted_ready=ready))
+    emit(ScoreChange(tuple(deltas), tuple(state.scores)))
     return _Terminal(DealOutcome((), _dealer_repeats_on_draw(state, ready), is_draw=True))
 
 
-def _counted_ready(state: GameState, decide: Decide) -> frozenset[int]:
+def _counted_ready(state: GameState) -> Generator[DecisionPoint, Action, frozenset[int]]:
     """The players who count as ready for payments and the repeat."""
     ready: set[int] = set()
     for seat in range(state.player_count):
         if not _is_yaku_ready(state, seat):
             continue
         if state.rules.tenpai_declaration:
-            choice = decide(seat, DecisionKind.TENPAI, tenpai_declaration_options())
+            choice = yield DecisionPoint(seat, DecisionKind.TENPAI, tuple(tenpai_declaration_options()))
             if not getattr(choice, "declare", False):
                 continue
         ready.add(seat)

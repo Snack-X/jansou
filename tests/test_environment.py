@@ -99,6 +99,87 @@ class TestDecisionRecording:
         assert first.decisions == second.decisions
 
 
+class TestStepwisePlay:
+    def test_play_matches_run_exactly(self) -> None:
+        # Driving play() with the same agents reproduces run(): same result,
+        # byte-identical records, identical decisions.
+        ran = Environment(Rules(), seed=42, record_decisions=True)
+        ran_result = ran.run([RandomAgent(seat) for seat in range(4)])
+        stepped = Environment(Rules(), seed=42, record_decisions=True)
+        stepped_result = _drive(stepped, [RandomAgent(seat) for seat in range(4)])
+        assert stepped_result == ran_result
+        assert stepped.records == ran.records
+        assert stepped.decisions == ran.decisions
+
+    def test_interleaved_games_match_sequential_runs(self) -> None:
+        sequential = [
+            Environment(Rules(), seed=seed).run([RandomAgent(seat) for seat in range(4)]) for seed in range(3)
+        ]
+        games = {
+            seed: (Environment(Rules(), seed=seed).play(), [RandomAgent(seat) for seat in range(4)])
+            for seed in range(3)
+        }
+        requests = {seed: next(game) for seed, (game, _) in games.items()}
+        interleaved: dict[int, object] = {}
+        while games:
+            for seed in list(games):  # one step of each game, round-robin
+                game, agents = games[seed]
+                request = requests[seed]
+                action = agents[request.seat].act(request.seat, request.kind, list(request.actions))
+                try:
+                    requests[seed] = game.send(action)
+                except StopIteration as stop:
+                    interleaved[seed] = stop.value
+                    del games[seed]
+        assert [interleaved[seed] for seed in range(3)] == sequential
+
+    def test_request_events_are_masked_for_the_deciding_seat(self) -> None:
+        game = Environment(Rules(), seed=5).play()
+        request = next(game)
+        deal_start = next(event for event in request.events if isinstance(event, DealStart))
+        assert deal_start.hands[request.seat] is not None
+        assert all(deal_start.hands[seat] is None for seat in range(4) if seat != request.seat)
+
+    def test_observe_sees_every_unmasked_event(self) -> None:
+        seen: list = []
+        env = Environment(Rules(), seed=5)
+        game = env.play(observe=seen.append)
+        request = next(game)
+        agents = [SimpleAgent() for _ in range(4)]
+        try:
+            while True:
+                request = game.send(agents[request.seat].act(request.seat, request.kind, list(request.actions)))
+        except StopIteration:
+            pass
+        assert isinstance(seen[0], GameStart)
+        assert isinstance(seen[-1], GameEnd)
+        deal_events = [event for event in seen if not isinstance(event, (GameStart, GameEnd))]
+        assert deal_events == [event for deal in env.records for event in deal]
+
+    def test_foreign_action_raises_naming_the_seat(self) -> None:
+        game = Environment(Rules(), seed=5).play()
+        request = next(game)
+        with pytest.raises(IllegalActionError, match=f"seat {request.seat}"):
+            game.send(Tsumo())
+
+
+def _drive(env: Environment, agents: list[Agent]) -> object:
+    """Drive play() the way run() does, delivering observations per seat."""
+
+    def fan_out(event: object) -> None:
+        for seat, agent in enumerate(agents):
+            agent.observe(event.mask_for(seat))  # type: ignore[attr-defined]
+
+    game = env.play(observe=fan_out)
+    request = next(game)
+    while True:
+        action = agents[request.seat].act(request.seat, request.kind, list(request.actions))
+        try:
+            request = game.send(action)
+        except StopIteration as stop:
+            return stop.value
+
+
 class TestMaskingAndNotification:
     def test_agents_see_game_start_and_end(self) -> None:
         seen: list = []

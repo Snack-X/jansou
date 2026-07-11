@@ -130,6 +130,29 @@ dump_tenhou_json_url(paifu)   # https://tenhou.net/6/#json=...
                               # can be viewed at https://mjv.snack.studio
 ```
 
+### Step-by-step play
+
+```python
+from jansou.core.rules import preset
+from jansou.game.environment import Environment
+
+env = Environment(preset("tenhou"))
+game = env.play()                    # returns generator
+                                     # play() make take `observe` function for
+                                     # unmasked events
+
+
+request = next(game)                 # first decision
+
+while True:
+    action = __choose(request)       # any of request.actions
+    try:
+        request = game.send(action)
+    except StopIteration as stop:
+        result = stop.value          # GameResult
+        break
+```
+
 ## Development
 
 ```sh

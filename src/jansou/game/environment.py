@@ -1,11 +1,13 @@
 """The game environment: the referee that runs a whole game.
 
 Constructed once per game with its configuration, an optional seed, and
-optionally predefined walls. Running is a single call: hand it one agent per
-seat and it plays to the end, returning the final scores and rankings. It owns
-the state, drives the flow, masks events per seat, keeps each deal's event
-stream in ``records``, and -- as the only consumer of the randomness source --
-guarantees that a seed reproduces a game.
+optionally predefined walls. There are two ways to play: ``run`` is a single
+call -- hand it one agent per seat and it plays to the end -- and ``play`` is
+its inversion, a generator that yields each decision for the caller to answer,
+so many games can be multiplexed and their decisions batched. Either way the
+environment owns the state, drives the flow, masks events per seat, keeps each
+deal's event stream in ``records``, and -- as the only consumer of the
+randomness source -- guarantees that a seed reproduces a game.
 """
 
 from __future__ import annotations
@@ -16,17 +18,19 @@ from typing import TYPE_CHECKING
 
 from jansou.core.tiles import full_tile_set
 from jansou.game.events import GameEnd, GameStart
-from jansou.game.flow import new_deal, play_deal
+from jansou.game.flow import deal_steps, new_deal
 from jansou.game.progression import advance, rank, settle_deposits, starting_position
 from jansou.game.wall import Wall
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
+
     from jansou.core.rules import Rules
     from jansou.core.tiles import Tile
     from jansou.game.actions import Action
     from jansou.game.agents import Agent
     from jansou.game.events import Event
-    from jansou.game.flow import DecisionKind
+    from jansou.game.flow import DealOutcome, DecisionKind
     from jansou.game.state import GameState
 
 
@@ -62,6 +66,22 @@ class Decision:
     event_index: int
 
 
+@dataclass(frozen=True)
+class DecisionRequest:
+    """One pending decision, yielded by ``Environment.play`` to its driver.
+
+    Attributes:
+        actions: The offered legal actions; the answer must be one of these.
+        events: The events newly emitted since the previous request, masked
+            for the deciding seat.
+    """
+
+    seat: int
+    kind: DecisionKind
+    actions: tuple[Action, ...]
+    events: tuple[Event, ...]
+
+
 class Environment:
     """The referee and engine for one game."""
 
@@ -94,6 +114,10 @@ class Environment:
     def run(self, agents: list[Agent], names: tuple[str, ...] | None = None) -> GameResult:
         """Play the whole game with one agent per seat, returning the result.
 
+        A thin driver over ``play``: every event is delivered to each agent's
+        ``observe`` (masked per seat) as it happens, and every decision is
+        answered by the deciding seat's ``act``.
+
         Args:
             agents: One agent per seat, in seat order.
             names: Display names in seat order; defaulted to ``Player N`` when omitted.
@@ -107,17 +131,67 @@ class Environment:
         """
         if len(agents) != self.rules.player_count:
             raise GameConfigError(f"expected {self.rules.player_count} agents, got {len(agents)}")
+
+        def fan_out(event: Event) -> None:
+            for seat, agent in enumerate(agents):
+                agent.observe(event.mask_for(seat))
+
+        game = self.play(names, observe=fan_out)
+        request = next(game)
+        while True:
+            action = agents[request.seat].act(request.seat, request.kind, list(request.actions))
+            try:
+                request = game.send(action)
+            except StopIteration as stop:
+                return stop.value
+
+    def play(
+        self,
+        names: tuple[str, ...] | None = None,
+        *,
+        observe: Callable[[Event], None] | None = None,
+    ) -> Generator[DecisionRequest, Action, GameResult]:
+        """Play the game step by step, yielding each decision to the caller.
+
+        The inversion of ``run``, for drivers that supply actions themselves
+        -- e.g. multiplexing many games and batching their pending decisions:
+        the generator yields a ``DecisionRequest`` per decision and is resumed
+        with the chosen action; the finished game's ``GameResult`` is the
+        generator's return value (``StopIteration.value``).
+
+        Each request carries the events newly emitted since the previous
+        request, masked for the deciding seat. Events emitted after a game's
+        last decision (the final win or draw, the game end) reach no request;
+        a driver that needs every event -- or every seat's view -- should pass
+        ``observe``, which is fed each unmasked event as it is emitted,
+        game-level events included, and may mask per seat with
+        ``Event.mask_for``.
+
+        Args:
+            names: Display names in seat order; defaulted to ``Player N`` when omitted.
+            observe: An optional callback fed every unmasked event as it is emitted.
+
+        Yields:
+            Each decision request, in game order.
+
+        Returns:
+            The finished game's final scores and ranking.
+
+        Raises:
+            GameConfigError: If a predefined wall is missing for a deal.
+            IllegalActionError: If the driver sends an action outside the
+                offered set.
+        """
         names = names or tuple(f"Player {seat + 1}" for seat in range(self.rules.player_count))
         scores = [self.rules.starting_points] * self.rules.player_count
-        self._notify(agents, GameStart(self.rules.player_count, names, tuple(scores)))
-        scores, pool = self._play(agents, scores)
-        scores = settle_deposits(scores, pool, self.rules)
-        ranking = rank(scores)
-        self._notify(agents, GameEnd(tuple(scores), ranking))
-        return GameResult(tuple(scores), ranking)
+        pending: list[Event] = []
 
-    def _play(self, agents: list[Agent], scores: list[int]) -> tuple[list[int], int]:
-        """Run deals until an ending condition, returning final scores and pool."""
+        def deliver(event: Event) -> None:
+            pending.append(event)
+            if observe is not None:
+                observe(event)
+
+        deliver(GameStart(self.rules.player_count, names, tuple(scores)))
         position = starting_position()
         in_extension = False
         pool = 0
@@ -125,15 +199,47 @@ class Environment:
         while True:
             state = new_deal(self.rules, self._wall(deal_index), position, scores, pool)
             self.state = state
-            deal_events: list[Event] = []
-            self.records.append(deal_events)
-            outcome = play_deal(state, self._decider(agents, deal_events), self._emitter(agents, deal_events))
+            outcome = yield from self._deal(state, pending, deliver)
             scores, pool = state.scores, state.deposit_pool
             step = advance(position, outcome, scores, self.rules, in_extension=in_extension)
             deal_index += 1
             if step.position is None:
-                return scores, pool
+                break
             position, in_extension = step.position, step.in_extension
+        scores = settle_deposits(scores, pool, self.rules)
+        ranking = rank(scores)
+        deliver(GameEnd(tuple(scores), ranking))
+        return GameResult(tuple(scores), ranking)
+
+    def _deal(
+        self, state: GameState, pending: list[Event], deliver: Callable[[Event], None]
+    ) -> Generator[DecisionRequest, Action, DealOutcome]:
+        """Run one deal's steps, wrapping decision points into requests."""
+        deal_events: list[Event] = []
+        self.records.append(deal_events)
+        deal_decisions: list[Decision] | None = None
+        if self.record_decisions:
+            deal_decisions = []
+            self.decisions.append(deal_decisions)
+
+        def emit(event: Event) -> None:
+            deal_events.append(event)
+            deliver(event)
+
+        steps = deal_steps(state, emit)
+        point = next(steps)
+        while True:
+            events = tuple(event.mask_for(point.seat) for event in pending)
+            pending.clear()
+            choice = yield DecisionRequest(point.seat, point.kind, point.actions, events)
+            if choice not in point.actions:
+                raise IllegalActionError(f"seat {point.seat} returned {choice!r}, not among the offered actions")
+            if deal_decisions is not None:
+                deal_decisions.append(Decision(point.seat, point.kind, point.actions, choice, len(deal_events)))
+            try:
+                point = steps.send(choice)
+            except StopIteration as stop:
+                return stop.value
 
     def _wall(self, deal_index: int) -> Wall:
         """The wall for a deal: a predefined one, or a fresh shuffle."""
@@ -146,32 +252,3 @@ class Environment:
         tiles = full_tile_set(self.rules.player_count, aka_dora=self.rules.aka_dora)
         self._rng.shuffle(tiles)
         return Wall(tuple(tiles))
-
-    def _decider(self, agents: list[Agent], deal_events: list[Event]):  # noqa: ANN202 - a decide callback for the flow
-        deal_decisions: list[Decision] | None = None
-        if self.record_decisions:
-            deal_decisions = []
-            self.decisions.append(deal_decisions)
-
-        def decide(seat: int, kind: DecisionKind, actions: list[Action]) -> Action:
-            action = agents[seat].act(seat, kind, list(actions))
-            if action not in actions:
-                raise IllegalActionError(f"seat {seat} returned {action!r}, not among the offered actions")
-            if deal_decisions is not None:
-                deal_decisions.append(Decision(seat, kind, tuple(actions), action, len(deal_events)))
-            return action
-
-        return decide
-
-    def _emitter(self, agents: list[Agent], deal_events: list[Event]):  # noqa: ANN202 - an emit callback for the flow
-        def emit(event: Event) -> None:
-            deal_events.append(event)
-            for seat, agent in enumerate(agents):
-                agent.observe(event.mask_for(seat))
-
-        return emit
-
-    def _notify(self, agents: list[Agent], event: Event) -> None:
-        """Deliver a game-level event to every agent (never recorded per deal)."""
-        for seat, agent in enumerate(agents):
-            agent.observe(event.mask_for(seat))
