@@ -105,15 +105,6 @@ class RandomAgent(Agent):
 class SimpleAgent(Agent):
     """Wins when it can, riichis when offered, otherwise discards its draw."""
 
-    def __init__(self) -> None:
-        """Start with no drawn tile remembered."""
-        self._drawn: Tile | None = None
-
-    def observe(self, event: Event) -> None:
-        """Remember this seat's own drawn tile, for tsumogiri."""
-        if isinstance(event, Draw) and event.tile is not None:
-            self._drawn = event.tile
-
     def act(self, seat: int, kind: DecisionKind, actions: list[Action]) -> Action:
         """Win or riichi when offered, else discard (tsumogiri) or pass."""
         _ = seat
@@ -132,7 +123,7 @@ class SimpleAgent(Agent):
     def _discard(self, actions: list[Action]) -> Action:
         """Tsumogiri when the draw is discardable, else the earliest kind."""
         discards = [action for action in actions if isinstance(action, Discard)]
-        tsumogiri = next((action for action in discards if action.tile == self._drawn), None)
+        tsumogiri = next((action for action in discards if action.tsumogiri), None)
         return tsumogiri if tsumogiri is not None else min(discards, key=lambda action: action.tile.sort_key)
 
 

@@ -42,16 +42,25 @@ class Action:
 
 @dataclass(frozen=True)
 class Discard(Action):
-    """Place one tile into the discard pile."""
+    """Place one tile into the discard pile.
+
+    ``tsumogiri`` marks the drawn-tile candidate, offered separately from an
+    identical copy held in hand: which tile leaves the hand is public.
+    """
 
     tile: Tile
+    tsumogiri: bool = False
 
 
 @dataclass(frozen=True)
 class Riichi(Action):
-    """Declare riichi together with the accompanying discard."""
+    """Declare riichi together with the accompanying discard.
+
+    ``tsumogiri`` marks the drawn-tile candidate, as for ``Discard``.
+    """
 
     tile: Tile
+    tsumogiri: bool = False
 
 
 @dataclass(frozen=True)
@@ -268,11 +277,11 @@ def _can_extract(state: GameState) -> bool:
 
 
 def _hand_tiles(player: PlayerState) -> list[Tile]:
-    """The concealed tiles plus the drawn tile, when present."""
-    tiles = list(player.concealed)
-    if player.drawn is not None:
-        tiles.append(player.drawn)
-    return tiles
+    """The concealed tiles plus the drawn tile.
+
+    Every caller sits in the self menu after a draw, so ``drawn`` is present.
+    """
+    return [*player.concealed, player.drawn]  # type: ignore[list-item]
 
 
 # --- Self-turn actions --------------------------------------------------------
@@ -310,7 +319,7 @@ def _riichi_locked_options(state: GameState, seat: int, drawn: Tile) -> list[Act
     options: list[Action] = list(_riichi_closed_kans(state, seat))
     if _can_extract(state) and drawn.kind is TileKind.NORTH:
         options.append(Nuki())
-    options.append(Discard(drawn))
+    options.append(Discard(drawn, tsumogiri=True))
     return options
 
 
@@ -384,10 +393,12 @@ def _riichi_options(state: GameState, seat: int) -> list[Action]:
         return []
     if state.wall.live_draws_remaining < state.player_count and not rules.riichi_without_draw:
         return []
-    candidates = _distinct_by_red(_hand_tiles(player))
+    # The self menu follows a draw, so the drawn tile is always present here.
+    candidates: list[Action] = [Riichi(tile) for tile in _distinct_by_red(player.concealed)]
+    candidates.append(Riichi(player.drawn, tsumogiri=True))  # type: ignore[arg-type]
     if not rules.riichi_without_tenpai:
-        candidates = [tile for tile in candidates if _ready_after_discard(state, seat, tile)]
-    return [Riichi(tile) for tile in candidates]
+        candidates = [option for option in candidates if _ready_after_discard(state, seat, option.tile)]
+    return candidates
 
 
 def _ready_after_discard(state: GameState, seat: int, tile: Tile) -> bool:
@@ -399,10 +410,15 @@ def _ready_after_discard(state: GameState, seat: int, tile: Tile) -> bool:
 
 
 def _discards(state: GameState, seat: int) -> list[Action]:
-    """One discard per distinct kind, excluding any swap-calling-banned kinds."""
+    """A discard per distinct concealed kind plus the draw, minus swap-banned kinds."""
     player = state.players[seat]
     restriction = state.post_call_restriction
-    return [Discard(tile) for tile in _distinct_by_red(_hand_tiles(player)) if tile.kind not in restriction]
+    options: list[Action] = [
+        Discard(tile) for tile in _distinct_by_red(player.concealed) if tile.kind not in restriction
+    ]
+    if player.drawn is not None:
+        options.append(Discard(player.drawn, tsumogiri=True))
+    return options
 
 
 # --- Reactions ----------------------------------------------------------------

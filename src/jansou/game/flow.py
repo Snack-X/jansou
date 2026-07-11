@@ -394,10 +394,9 @@ def _handle_discard(
     state: GameState, seat: int, choice: Action, emit: Emit
 ) -> Generator[DecisionPoint, Action, _Terminal | _Next]:
     """Place the discard, run its reaction window, and finalize the turn."""
-    player = state.players[seat]
     tile = choice.tile
     is_riichi = isinstance(choice, Riichi)
-    tsumogiri = player.drawn is not None and tile == player.drawn
+    tsumogiri = choice.tsumogiri
     _place_discard(state, seat, tile, tsumogiri=tsumogiri, riichi=is_riichi)
     emit(DiscardEvent(seat, tile, tsumogiri=tsumogiri, riichi=is_riichi))
     if is_riichi:

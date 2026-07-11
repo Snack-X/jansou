@@ -33,6 +33,7 @@ from jansou.game.events import (
     ScoreChange,
     Win,
 )
+from jansou.game.events import Discard as DiscardEvent
 from jansou.game.flow import (
     DecisionKind,
     Position,
@@ -127,6 +128,36 @@ def test_full_deal_runs_to_exhaustive_draw() -> None:
     assert len(rec.of(Draw)) == 70  # the live wall's ordinary draws
     assert rec.of(Ryuukyoku)[0].kind is RyuukyokuKind.EXHAUSTIVE
     assert rec.of(ScoreChange)
+
+
+class TestTsumogiriMark:
+    def _decide_with(self, chosen: Discard) -> object:
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if kind is DecisionKind.SELF and chosen in actions:
+                return chosen
+            return just_discard(seat, kind, actions)
+
+        return decide
+
+    def test_tedashi_of_a_drawn_duplicate(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.M5))
+        state = flow_state(["34555m567p789s22s", _JUNK, _JUNK, _JUNK], sequence=seq)
+        rec = Recorder()
+        play_deal(state, self._decide_with(Discard(Tile(TileKind.M5))), rec)
+        first = rec.of(DiscardEvent)[0]
+        assert first.seat == 0
+        assert first.tile == Tile(TileKind.M5)
+        assert first.tsumogiri is False
+
+    def test_tsumogiri_of_a_drawn_duplicate(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.M5))
+        state = flow_state(["34555m567p789s22s", _JUNK, _JUNK, _JUNK], sequence=seq)
+        rec = Recorder()
+        play_deal(state, self._decide_with(Discard(Tile(TileKind.M5), tsumogiri=True)), rec)
+        first = rec.of(DiscardEvent)[0]
+        assert first.seat == 0
+        assert first.tile == Tile(TileKind.M5)
+        assert first.tsumogiri is True
 
 
 class TestWins:

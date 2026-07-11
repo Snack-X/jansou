@@ -81,8 +81,20 @@ class TestSelfTurn:
     def test_riichi_offered_when_tenpai(self) -> None:
         state = _four("234m345m567p234s8s", drawn="9s")
         actions = self_actions(state)
+        assert Riichi(Tile(TileKind.S9), tsumogiri=True) in actions
+        assert Discard(Tile(TileKind.S9), tsumogiri=True) in actions
+
+    def test_drawn_duplicate_is_a_separate_discard(self) -> None:
+        state = _four("34555m567p789s22s", drawn="5m")
+        actions = self_actions(state)
+        assert Discard(Tile(TileKind.M5)) in actions
+        assert Discard(Tile(TileKind.M5), tsumogiri=True) in actions
+
+    def test_drawn_duplicate_is_a_separate_riichi(self) -> None:
+        state = _four("234m345m567p234s9s", drawn="9s")
+        actions = self_actions(state)
         assert Riichi(Tile(TileKind.S9)) in actions
-        assert Discard(Tile(TileKind.S9)) in actions
+        assert Riichi(Tile(TileKind.S9), tsumogiri=True) in actions
 
     def test_closed_kan_offered_with_four_copies(self) -> None:
         state = _four("1111m234p678p999s", drawn="5s")
@@ -122,7 +134,7 @@ class TestRiichiLocked:
         state = _four("555m123p456p789p2s", drawn="3m")
         state.players[0].riichi = True
         actions = self_actions(state)
-        assert Discard(Tile(TileKind.M3)) in actions
+        assert Discard(Tile(TileKind.M3), tsumogiri=True) in actions
         assert Discard(Tile(TileKind.S2)) not in actions
 
     def test_wait_preserving_closed_kan_offered(self) -> None:
@@ -135,7 +147,7 @@ class TestRiichiLocked:
         state.players[0].riichi = True
         actions = self_actions(state)
         assert ClosedKan(TileKind.M5) not in actions
-        assert Discard(Tile(TileKind.M5)) in actions
+        assert Discard(Tile(TileKind.M5), tsumogiri=True) in actions
 
 
 class TestReactions:

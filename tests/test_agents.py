@@ -84,8 +84,8 @@ class TestSimpleAgent:
 
     def test_tsumogiri_discards_the_draw(self) -> None:
         agent = SimpleAgent()
-        agent.observe(Draw(0, tile("5p")))
-        assert agent.act(0, DecisionKind.SELF, [Discard(tile("1m")), Discard(tile("5p"))]) == Discard(tile("5p"))
+        offered = [Discard(tile("1m")), Discard(tile("5p"), tsumogiri=True)]
+        assert agent.act(0, DecisionKind.SELF, offered) == Discard(tile("5p"), tsumogiri=True)
 
     def test_falls_back_to_earliest_discard(self) -> None:
         agent = SimpleAgent()
