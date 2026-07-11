@@ -316,6 +316,7 @@ def _rob_target(choice: Action) -> tuple[Tile, _RobMode]:
 
 def _complete_kan(state: GameState, seat: int, choice: Action, emit: Emit) -> None:
     """Complete a closed or added kan: meld, reveal, and replacement draw."""
+    _flush_deferred_reveals(state, emit)  # a further kan settles any indicator still deferred
     player = state.players[seat]
     if isinstance(choice, AddedKan):
         meld = _upgrade_pon(player, choice.tile)
@@ -347,6 +348,9 @@ def _form_closed_kan(player: PlayerState, kind: TileKind) -> Meld:
 def _upgrade_pon(player: PlayerState, added: Tile) -> Meld:
     """Turn a pon into an added kan by adding the fourth tile from hand."""
     _remove_tile(player, added)
+    if player.drawn is not None:  # the fourth tile came from the concealed hand; retire the drawn tile
+        player.concealed.append(player.drawn)
+        player.drawn = None
     for index, meld in enumerate(player.melds):
         if meld.type is MeldType.PON and meld.tiles[0].kind is added.kind:
             upgraded = Meld(
@@ -364,6 +368,7 @@ def _upgrade_pon(player: PlayerState, added: Tile) -> Meld:
 
 def _complete_nuki(state: GameState, seat: int, emit: Emit) -> None:
     """Set aside a North and take a replacement draw."""
+    _flush_deferred_reveals(state, emit)  # a North extraction settles any deferred indicator
     player = state.players[seat]
     _remove_tile(player, Tile(TileKind.NORTH))
     if player.drawn is not None:  # the North came from the concealed hand; retire the drawn tile
@@ -382,7 +387,14 @@ def _reveal_dora(state: GameState, emit: Emit, *, immediate: bool) -> None:
     if immediate:
         emit(IndicatorReveal(state.wall.reveal_indicator()))
     else:
-        state.deferred_reveal = True
+        state.deferred_reveals += 1
+
+
+def _flush_deferred_reveals(state: GameState, emit: Emit) -> None:
+    """Turn up every kan indicator whose reveal was deferred past its discard."""
+    while state.deferred_reveals:
+        emit(IndicatorReveal(state.wall.reveal_indicator()))
+        state.deferred_reveals -= 1
 
 
 # --- Discards and reactions ---------------------------------------------------
@@ -392,6 +404,7 @@ def _handle_discard(
     state: GameState, seat: int, choice: Action, emit: Emit
 ) -> Generator[DecisionPoint, Action, _Terminal | _Next]:
     """Place the discard, run its reaction window, and finalize the turn."""
+    _flush_deferred_reveals(state, emit)  # a kan's indicator turns at the discard, even one that is ronned
     tile = choice.tile
     is_riichi = isinstance(choice, Riichi)
     tsumogiri = choice.tsumogiri
@@ -464,6 +477,7 @@ def _resolve_reactions(
 
 def _apply_meld_call(state: GameState, caller: int, choice: Action, emit: Emit) -> None:
     """Expose a claimed meld, redirect the turn, and record any liability."""
+    _accept_pending_riichi(state, emit)  # a called riichi discard still completes the declaration
     discarder, tile = state.last_discard  # type: ignore[misc]
     state.players[discarder].discards[-1].called_away = True
     source = state.relative_source(discarder, caller)
@@ -552,9 +566,8 @@ def _score_ron(state: GameState, seat: int, claim: _RonClaim, *, first: bool) ->
     result = win_result(state, seat, claim.tile, context)
     if result is None:  # pragma: no cover - the window only offered a winning ron
         raise RuntimeError("ron on a non-winning tile")
-    return _WinRecord(
-        seat, claim.from_seat, claim.tile, result, collects_pot=first, ura_indicators=context.ura_indicators
-    )
+    ura = context.ura_indicators if state.players[seat].is_riichi else ()
+    return _WinRecord(seat, claim.from_seat, claim.tile, result, collects_pot=first, ura_indicators=ura)
 
 
 def _win_by_tsumo(state: GameState, seat: int, emit: Emit, *, rinshan: bool) -> _Terminal:
@@ -565,7 +578,8 @@ def _win_by_tsumo(state: GameState, seat: int, emit: Emit, *, rinshan: bool) -> 
     result = win_result(state, seat, player.drawn, context)
     if result is None:  # pragma: no cover - tsumo was only offered on a win
         raise RuntimeError("tsumo on a non-winning draw")
-    record = _WinRecord(seat, None, player.drawn, result, ura_indicators=context.ura_indicators)
+    ura = context.ura_indicators if player.is_riichi else ()
+    record = _WinRecord(seat, None, player.drawn, result, ura_indicators=ura)
     _apply_wins(state, [record], emit)
     return _Terminal(DealOutcome((seat,), state.is_dealer(seat), is_draw=False))
 
@@ -689,9 +703,6 @@ def _finalize(state: GameState, emit: Emit) -> Generator[DecisionPoint, Action, 
     Only reached when no call redirected the turn; the caller advances the seat.
     """
     _accept_pending_riichi(state, emit)
-    if state.deferred_reveal:
-        emit(IndicatorReveal(state.wall.reveal_indicator()))
-        state.deferred_reveal = False
     abort = _pending_abort(state)
     if abort is not None:
         return _abortive_draw(abort, emit)

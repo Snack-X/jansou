@@ -110,7 +110,7 @@ class GameState:
     liabilities: list[Liability] = field(default_factory=list)
     counted_ready: frozenset[int] | None = None
     post_call_restriction: frozenset[TileKind] = frozenset()
-    deferred_reveal: bool = False
+    deferred_reveals: int = 0
 
     @property
     def player_count(self) -> int:

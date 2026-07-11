@@ -177,6 +177,7 @@ class TestWins:
         win = rec.of(Win)[0]
         assert win.seat == 0
         assert win.from_seat is None
+        assert win.ura_indicators == ()  # the concealed ura stay hidden without riichi
         assert state.scores[0] > 25000
 
     def test_ron_off_the_dealer(self) -> None:
@@ -213,6 +214,28 @@ class TestRiichi:
         assert outcome.is_draw
         assert state.deposit_pool == 1000  # the banked deposit stays on the table at a draw
         assert sum(state.scores) + state.deposit_pool == 100_000  # points are conserved
+
+    def test_called_riichi_discard_still_banks_the_declaration(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.M1))
+        state = flow_state(["234m345m567p234s8s", "119m159p159s1234z", _JUNK, _JUNK], sequence=seq)
+        rec = Recorder()
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF:
+                riichi = next((a for a in actions if isinstance(a, Riichi) and a.tsumogiri), None)
+                if riichi is not None:
+                    return riichi
+            if seat == 1 and kind is DecisionKind.DISCARD_REACTION and any(isinstance(a, Pon) for a in actions):
+                return next(a for a in actions if isinstance(a, Pon))
+            return just_discard(seat, kind, actions)
+
+        play_deal(state, decide, rec)
+        accepted = rec.of(RiichiAccepted)
+        assert accepted
+        assert accepted[0].seat == 0
+        # The declaration completes when the discard is claimed, not later.
+        assert rec.events.index(accepted[0]) < rec.events.index(rec.of(Call)[0])
+        assert state.players[0].is_riichi  # an uninterrupted first discard makes it a double riichi
 
 
 class TestCalls:
@@ -306,6 +329,70 @@ class TestKans:
         assert outcome.winners == (1,)
         assert Yaku.CHANKAN in {value.yaku for value in rec.of(Win)[0].result.yaku}
         assert state.kans == 0  # a robbed kan never completes
+
+    def test_added_kan_keeps_the_prior_draw(self) -> None:
+        pon = Meld(MeldType.PON, tuple(parse_mpsz("555s")), called=Tile(TileKind.S5), source=CallSource.TOIMEN)
+        seq = sequence_with(i14=Tile(TileKind.EAST))
+        state = flow_state(["5s123m456m789m", _JUNK, _JUNK, _JUNK], sequence=seq)
+        state.players[0].melds = [pon]
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF:
+                kan = next((a for a in actions if isinstance(a, AddedKan)), None)
+                if kan is not None:
+                    return kan
+                east = discard_of(actions, Tile(TileKind.EAST))
+                if east is not None:
+                    return east
+            return just_discard(seat, kind, actions)
+
+        rec = Recorder()
+        play_deal(state, decide, rec)
+        first = rec.of(DiscardEvent)[0]
+        assert first.seat == 0
+        assert first.tile == Tile(TileKind.EAST)  # the pre-kan draw survived the kan
+
+    def test_deferred_indicator_turns_at_a_ronned_kan_discard(self) -> None:
+        seq = sequence_with(i0=Tile(TileKind.S2), i14=Tile(TileKind.M4))
+        rules = Rules(open_kan_indicator_immediate=False)
+        state = flow_state(
+            ["555s888m999m11p77z", "5s234m234p234s678p", _JUNK, "123m123p13s555z66z"],
+            sequence=seq,
+            rules=rules,
+        )
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if kind is DecisionKind.SELF:
+                if seat == 1 and (five := discard_of(actions, Tile(TileKind.S5))):
+                    return five
+                return next(a for a in actions if isinstance(a, Discard) and a.tsumogiri)
+            if seat == 0 and any(isinstance(a, OpenKan) for a in actions):
+                return OpenKan()
+            if seat == 3 and any(isinstance(a, Ron) for a in actions):
+                return Ron()
+            return just_discard(seat, kind, actions)
+
+        rec = Recorder()
+        outcome = play_deal(state, decide, rec)
+        assert outcome.winners == (3,)
+        reveals = rec.of(IndicatorReveal)
+        assert len(reveals) == 1  # the kan indicator turned even though the discard was ronned
+        kan_discard = next(e for e in rec.of(DiscardEvent) if e.tile == Tile(TileKind.S2))
+        assert rec.events.index(reveals[0]) < rec.events.index(kan_discard)
+
+    def test_consecutive_deferred_indicators_all_turn(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.M1))
+        rules = Rules(closed_kan_indicator_immediate=False)
+        state = flow_state(["44447777z888p22p", _JUNK, _JUNK, _JUNK], sequence=seq, rules=rules)
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF and any(isinstance(a, ClosedKan) for a in actions):
+                return next(a for a in actions if isinstance(a, ClosedKan))
+            return just_discard(seat, kind, actions)
+
+        rec = Recorder()
+        play_deal(state, decide, rec)
+        assert len(rec.of(IndicatorReveal)) == 2  # one per kan; a single flag would drop one
 
 
 class TestSanma:
