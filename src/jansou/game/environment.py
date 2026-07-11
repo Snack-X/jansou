@@ -106,6 +106,9 @@ class Environment:
         Args:
             rules: The rule set governing the game.
             seed: The seed for wall shuffling; ``None`` for unseeded shuffles.
+                It covers only the environment's own randomness: randomizing
+                agents (e.g. ``RandomAgent``) draw from their own sources and
+                must be seeded separately for a reproducible game.
             walls: Predefined tile sequences, one per deal, used in order instead
                 of shuffling; ``None`` to shuffle a fresh wall each deal.
             record_decisions: Whether to keep every decision point in

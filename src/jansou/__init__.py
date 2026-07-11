@@ -9,3 +9,7 @@ Functionality lives in topical subpackages:
 - jansou.io: reading, writing, and replaying external records (mjlog, Tenhou JSON, MJAI), and exporting engine games
 - jansou.validation: checking parsed games against the scores their logs recorded
 """
+
+from importlib.metadata import version
+
+__version__ = version("jansou")
