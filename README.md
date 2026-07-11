@@ -16,7 +16,7 @@
 | src/jansou/core/rules.py              |       80 |        0 |       10 |        0 |     100% |           |
 | src/jansou/core/tiles.py              |      171 |        0 |       24 |        0 |     100% |           |
 | src/jansou/game/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
-| src/jansou/game/actions.py            |      258 |        0 |       76 |        0 |     100% |           |
+| src/jansou/game/actions.py            |      259 |        0 |       76 |        0 |     100% |           |
 | src/jansou/game/agents.py             |      204 |        0 |       64 |        0 |     100% |           |
 | src/jansou/game/environment.py        |       58 |        0 |       10 |        0 |     100% |           |
 | src/jansou/game/events.py             |       76 |        0 |        2 |        0 |     100% |           |
@@ -39,7 +39,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **3532** |    **0** | **1018** |    **0** | **100%** |           |
+| **TOTAL**                             | **3533** |    **0** | **1018** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
