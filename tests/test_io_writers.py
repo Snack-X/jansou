@@ -217,6 +217,43 @@ class TestDrawRoundTrips:
             assert isinstance(reparsed.rounds[0].outcome, Ryuukyoku)
 
 
+class TestTsumogiriMarks:
+    def _marked_game(self) -> Paifu:
+        events = (
+            Draw(0, parse_mpsz("3p")[0]),
+            Discard(0, parse_mpsz("3p")[0], tsumogiri=True),  # the draw, given up unchanged
+            Draw(1, parse_mpsz("1z")[0]),
+            Discard(1, parse_mpsz("1z")[0]),  # a tedashi of a copy identical to the draw
+            Draw(2, parse_mpsz("2z")[0]),
+            Discard(2, parse_mpsz("5m")[0]),  # an ordinary tedashi
+            Draw(3, parse_mpsz("3z")[0]),
+            Discard(3, parse_mpsz("3z")[0], riichi=True, tsumogiri=True),  # a riichi tsumogiri
+        )
+        outcome = Ryuukyoku(kind="exhaustive", deltas=(0, 0, 0, 0), tenpai=(False, False, False, False))
+        return _game(_round(events, outcome))
+
+    def test_marks_round_trip_through_every_writer(self) -> None:
+        for name, dump, parse in _WRITERS:
+            reparsed = parse(dump(self._marked_game()))
+            discards = [event for event in reparsed.rounds[0].events if isinstance(event, Discard)]
+            flags = [(event.tsumogiri, event.riichi) for event in discards]
+            assert flags == [(True, False), (False, False), (False, False), (True, True)], name
+
+    def test_mjlog_conveys_the_mark_by_tile_index(self) -> None:
+        text = dump_mjlog(self._marked_game())
+        assert "<T44/>" in text  # seat 0 draws 3p (index 44)...
+        assert "<D44/>" in text  # ...and its tsumogiri reuses the same copy
+        assert "<U108/>" in text  # seat 1 draws 1z (index 108)...
+        assert "<E109/>" in text  # ...and the identical tedashi takes another copy
+
+    def test_mjlog_tsumogiri_without_a_draw_falls_back_to_the_canonical_copy(self) -> None:
+        round_log = _round(
+            (Discard(0, parse_mpsz("3p")[0], tsumogiri=True),),
+            Ryuukyoku(kind="exhaustive", deltas=(0, 0, 0, 0), tenpai=()),
+        )
+        assert "<D44/>" in dump_mjlog(_game(round_log))
+
+
 class TestGuardsAndFlags:
     def _sanma_game(self) -> Paifu:
         outcome = Ryuukyoku(kind="exhaustive", deltas=(0, 0, 0), tenpai=())

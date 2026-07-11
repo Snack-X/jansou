@@ -50,11 +50,13 @@ class Discard:
         seat: The seat that discarded.
         tile: The tile discarded.
         riichi: Whether this discard declared riichi (the sideways tile).
+        tsumogiri: Whether the discard gave up the drawn tile unchanged.
     """
 
     seat: int
     tile: Tile
     riichi: bool = False
+    tsumogiri: bool = False
 
 
 @dataclass(frozen=True)

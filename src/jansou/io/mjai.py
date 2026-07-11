@@ -136,7 +136,9 @@ def _parse_body(
             robbed = None
             declare = reach_seat == event["actor"]
             reach_seat = None
-            events.append(Discard(event["actor"], last_discard, riichi=declare))
+            events.append(
+                Discard(event["actor"], last_discard, riichi=declare, tsumogiri=event.get("tsumogiri", False))
+            )
         elif kind in ("chi", "pon", "daiminkan", "ankan", "kakan"):
             if kind == "kakan":
                 # A promoted kan is robbable: a chankan ron wins on the added tile.
@@ -274,7 +276,7 @@ def _dump_event(event: Event, player_count: int) -> list[dict]:
     if isinstance(event, Draw):
         return [{"type": "tsumo", "actor": event.seat, "pai": _token(event.tile)}]
     if isinstance(event, Discard):
-        dahai = {"type": "dahai", "actor": event.seat, "pai": _token(event.tile), "tsumogiri": False}
+        dahai = {"type": "dahai", "actor": event.seat, "pai": _token(event.tile), "tsumogiri": event.tsumogiri}
         if event.riichi:
             return [{"type": "reach", "actor": event.seat}, dahai]
         return [dahai]

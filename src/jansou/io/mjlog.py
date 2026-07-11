@@ -139,15 +139,20 @@ def _parse_body(elements: list[ET.Element], player_count: int) -> tuple[list[Eve
     agari: list[Agari] = []
     ryuukyoku: Ryuukyoku | None = None
     riichi_seat: int | None = None
+    last_draw: dict[int, int] = {}  # each seat's pending draw index; tsumogiri is index identity
     for element in elements:
         tag = element.tag
         seat = _seat_of_tile_tag(tag)
         if seat is not None and tag[0] in _DRAW_PREFIXES:
-            events.append(Draw(seat, tile_from_136(int(tag[1:]))))
+            index = int(tag[1:])
+            last_draw[seat] = index
+            events.append(Draw(seat, tile_from_136(index)))
         elif seat is not None:
+            index = int(tag[1:])
             declare = riichi_seat == seat
             riichi_seat = None
-            events.append(Discard(seat, tile_from_136(int(tag[1:])), riichi=declare))
+            tsumogiri = last_draw.pop(seat, None) == index
+            events.append(Discard(seat, tile_from_136(index), riichi=declare, tsumogiri=tsumogiri))
         elif tag == "N":
             events.append(_call_event(element))
         elif tag == "REACH" and element.get("step") == "1":
@@ -318,16 +323,19 @@ def _dump_round(round_log: RoundLog, rules: object, player_count: int) -> str:
         for seat in range(player_count)
     )
     init = f'<INIT seed="{seed}" ten="{ten}" oya="{round_log.dealer}"{hands}/>'
-    body = "".join(_dump_event(event) for event in round_log.events)
+    last_draw: dict[int, int] = {}
+    body = "".join(_dump_event(event, last_draw) for event in round_log.events)
     return f"{init}{body}{_dump_outcome(round_log, rules, player_count)}"
 
 
-def _dump_event(event: Event) -> str:
-    """The mjlog tag(s) for one normalized event."""
+def _dump_event(event: Event, last_draw: dict[int, int]) -> str:
+    """The mjlog tag(s) for one normalized event, threading each seat's last draw index."""
     if isinstance(event, Draw):
-        return f"<{_DRAW_TAGS[event.seat]}{tile_to_136(event.tile)}/>"
+        index = tile_to_136(event.tile)
+        last_draw[event.seat] = index
+        return f"<{_DRAW_TAGS[event.seat]}{index}/>"
     if isinstance(event, Discard):
-        tag = f"<{_DISCARD_TAGS[event.seat]}{tile_to_136(event.tile)}/>"
+        tag = f"<{_DISCARD_TAGS[event.seat]}{_discard_136(event, last_draw.pop(event.seat, None))}/>"
         if event.riichi:
             return f'<REACH who="{event.seat}" step="1"/>{tag}'
         return tag
@@ -336,6 +344,21 @@ def _dump_event(event: Event) -> str:
     if isinstance(event, Kita):
         return f'<N who="{event.seat}" m="{_KITA_CODE}"/>'
     return f'<DORA hai="{tile_to_136(event.indicator)}"/>'
+
+
+def _discard_136(event: Discard, drawn_index: int | None) -> int:
+    """The 136-index carrying the tsumogiri mark, which mjlog conveys physically.
+
+    A tsumogiri reuses the draw's own index; a tedashi of a tile identical to
+    the draw takes the next copy, so a reader comparing indices reads it back
+    as from the hand.
+    """
+    if event.tsumogiri and drawn_index is not None:
+        return drawn_index
+    index = tile_to_136(event.tile)
+    if index == drawn_index:
+        return index + 1
+    return index
 
 
 def _dump_outcome(round_log: RoundLog, rules: object, player_count: int) -> str:

@@ -30,6 +30,7 @@ from jansou.game.events import (
 from jansou.io.from_game import paifu_from_game, paifu_from_records
 from jansou.io.mjai import dump_mjai, parse_mjai
 from jansou.io.mjlog import dump_mjlog, parse_mjlog
+from jansou.io.paifu import Discard as PaifuDiscard
 from jansou.io.paifu import Ryuukyoku
 from jansou.io.tenhou_json import dump_tenhou_json, parse_tenhou_json
 from jansou.scoring.context import WinContext
@@ -117,6 +118,22 @@ class TestBridgeInternals:
         # The written game re-parses to the same two validated wins.
         for verdict in check_paifu(parse_mjlog(dump_mjlog(paifu).encode())):
             assert verdict.passed, verdict.detail
+
+    def test_discard_marks_survive_into_the_record(self) -> None:
+        tile = parse_mpsz("2m")[0]
+        records = [
+            [
+                self._deal_start(honba=0, deposits=0),
+                GameDraw(0, tile),
+                GameDiscard(0, tile, tsumogiri=True),
+                GameDraw(1, tile),
+                GameDiscard(1, tile, riichi=True),
+                GameRyuukyoku(kind=RyuukyokuKind.FOUR_WINDS),
+            ]
+        ]
+        paifu = paifu_from_records(records, preset("tenhou"))
+        discards = [event for event in paifu.rounds[0].events if isinstance(event, PaifuDiscard)]
+        assert [(event.tsumogiri, event.riichi) for event in discards] == [(True, False), (False, True)]
 
     def test_abortive_draw_keeps_its_reason_and_moves_no_points(self) -> None:
         records = [[self._deal_start(honba=0, deposits=0), GameRyuukyoku(kind=RyuukyokuKind.FOUR_WINDS)]]

@@ -97,7 +97,7 @@ def _round_from_events(events: list[Event], player_count: int) -> RoundLog:
             normalized.append(Draw(event.seat, event.tile))
         elif isinstance(event, GameDiscard):
             last_discard = event.tile
-            normalized.append(Discard(event.seat, event.tile, riichi=event.riichi))
+            normalized.append(Discard(event.seat, event.tile, riichi=event.riichi, tsumogiri=event.tsumogiri))
         elif isinstance(event, GameCall):
             normalized.append(Call(event.caller, _meld_of(event, last_discard, player_count)))
         elif isinstance(event, IndicatorReveal):

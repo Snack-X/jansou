@@ -177,8 +177,8 @@ def _walk(
         if discarded == _CALLED_AWAY:
             pointer[current] += 1
             continue
-        tile, riichi = _discard_tile(discarded, last_drawn[current])
-        events.append(Discard(current, tile, riichi=riichi))
+        tile, riichi, tsumogiri = _discard_tile(discarded, last_drawn[current])
+        events.append(Discard(current, tile, riichi=riichi, tsumogiri=tsumogiri))
         last_discard = tile
         pointer[current] += 1
         caller = _next_caller(draws, pointer, current, tile, player_count=len(draws))
@@ -191,15 +191,15 @@ def _walk(
     return events, last_discard, last_drawn, robbed
 
 
-def _discard_tile(entry: object, drawn: Tile | None) -> tuple[Tile, bool]:
-    """The tile a discard entry names, and whether it declared riichi."""
+def _discard_tile(entry: object, drawn: Tile | None) -> tuple[Tile, bool, bool]:
+    """The tile a discard entry names, whether it declared riichi, and its tsumogiri mark."""
     riichi = isinstance(entry, str) and entry[0] == "r"
     code = int(entry[1:]) if riichi else entry
     if code == _TSUMOGIRI:
         if drawn is None:
             raise TenhouJsonError("tsumogiri with no preceding draw")
-        return drawn, riichi
-    return tile_from_tenhou(code), riichi  # type: ignore[arg-type]
+        return drawn, riichi, True
+    return tile_from_tenhou(code), riichi, False  # type: ignore[arg-type]
 
 
 def _next_caller(draws: list[list], pointer: list[int], discarder: int, tile: Tile, player_count: int) -> int | None:
@@ -432,7 +432,7 @@ def _dump_round(round_log: RoundLog, player_count: int) -> list:
         if isinstance(event, Draw):
             draws[event.seat].append(tile_to_tenhou(event.tile))
         elif isinstance(event, Discard):
-            code = tile_to_tenhou(event.tile)
+            code = _TSUMOGIRI if event.tsumogiri else tile_to_tenhou(event.tile)
             discards[event.seat].append(f"r{code}" if event.riichi else code)
         elif isinstance(event, Call):
             _dump_call_into(event, draws, discards)
