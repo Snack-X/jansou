@@ -36,6 +36,7 @@ from jansou.game.actions import (
     Tsumo,
     current_waits,
     discard_reactions,
+    kuikae_banned_kinds,
     north_reactions,
     robbed_kan_reactions,
     self_actions,
@@ -84,9 +85,6 @@ _DAISUUSHI_WINDS = 4
 _MANGAN_BASE = 2000
 _DEALER_SHARE = 2
 _HONBA_DIVISOR = 3
-_CHII_SPAN = 3
-_LOW_EDGE = 6
-_HIGH_EDGE = 4
 
 
 @unique
@@ -497,19 +495,7 @@ def _redirect_after_call(state: GameState, caller: int, choice: Action, tile: Ti
         state.players[caller].drawn = state.wall.draw_replacement()
         emit(Draw(caller, state.players[caller].drawn, replacement=True))
     elif state.rules.kuikae_ban:
-        state.post_call_restriction = _kuikae_ban(choice, tile)
-
-
-def _kuikae_ban(choice: Action, tile: Tile) -> frozenset[TileKind]:
-    """The kinds the swap-calling ban forbids discarding after this call."""
-    banned = {tile.kind}
-    if isinstance(choice, Chii) and tile.kind.rank is not None:
-        ranks = sorted(used.kind for used in (*choice.tiles, tile))
-        if ranks[0] == tile.kind and tile.kind.rank <= _LOW_EDGE:
-            banned.add(TileKind(tile.kind + _CHII_SPAN))
-        elif ranks[-1] == tile.kind and tile.kind.rank >= _HIGH_EDGE:
-            banned.add(TileKind(tile.kind - _CHII_SPAN))
-    return frozenset(banned)
+        state.post_call_restriction = kuikae_banned_kinds(choice, tile)
 
 
 # --- Robbing window -----------------------------------------------------------

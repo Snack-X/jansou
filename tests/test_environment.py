@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import random
+from typing import TYPE_CHECKING
 
 import pytest
 
-from jansou.core.rules import Rules
+from jansou.core.rules import Rules, preset
 from jansou.core.tiles import full_tile_set
-from jansou.game.actions import Tsumo
+from jansou.game.actions import Action, Chii, Pon, Tsumo
 from jansou.game.agents import Agent, RandomAgent, SimpleAgent
 from jansou.game.environment import Environment, GameConfigError, IllegalActionError
 from jansou.game.events import DealStart, Draw, GameEnd, GameStart, Win
+
+if TYPE_CHECKING:
+    from jansou.game.flow import DecisionKind
 
 
 def _assert_conserved(scores: tuple[int, ...], start_total: int) -> None:
@@ -40,6 +44,28 @@ class TestRunning:
         result = Environment(Rules(), seed=2).run([RandomAgent(seat) for seat in range(4)])
         ordered = [result.scores[seat] for seat in result.ranking]
         assert ordered == sorted(ordered, reverse=True)
+
+
+class _GreedyCaller(Agent):
+    """Calls every chii and pon offered, picking randomly otherwise."""
+
+    def __init__(self, seed: int) -> None:
+        self._rng = random.Random(seed)
+
+    def act(self, seat: int, kind: DecisionKind, actions: list[Action]) -> Action:
+        _ = (seat, kind)
+        call = next((action for action in actions if isinstance(action, (Chii, Pon))), None)
+        return call if call is not None else self._rng.choice(actions)
+
+
+class TestKuikaeRegression:
+    # Call-greedy play at these seeds once cornered a caller into a discard
+    # menu the swap ban had emptied; the games must now run to completion.
+    @pytest.mark.parametrize("seed", [221, 460, 478])
+    def test_call_greedy_game_completes(self, seed: int) -> None:
+        agents = [_GreedyCaller(seed * 4 + offset) for offset in range(4)]
+        result = Environment(preset("tenhou"), seed=seed).run(agents)
+        _assert_conserved(result.scores, 100_000)
 
 
 class TestDeterminism:

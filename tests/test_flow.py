@@ -38,7 +38,6 @@ from jansou.game.flow import (
     DecisionKind,
     Position,
     _find_liability,
-    _kuikae_ban,
     _record_liability,
     _score_one_win,
     _WinRecord,
@@ -505,20 +504,7 @@ class TestExhaustiveVariants:
         assert not outcome.dealer_repeats  # the dealer's junk hand is noten
 
 
-class TestPaoAndKuikae:
-    def test_kuikae_ban_kinds(self) -> None:
-        assert _kuikae_ban(Chii((Tile(TileKind.M4), Tile(TileKind.M5))), Tile(TileKind.M3)) == frozenset(
-            {TileKind.M3, TileKind.M6}
-        )
-        assert _kuikae_ban(Chii((Tile(TileKind.M5), Tile(TileKind.M6))), Tile(TileKind.M7)) == frozenset(
-            {TileKind.M7, TileKind.M4}
-        )
-        assert _kuikae_ban(Chii((Tile(TileKind.M1), Tile(TileKind.M2))), Tile(TileKind.M3)) == frozenset({TileKind.M3})
-        assert _kuikae_ban(Chii((Tile(TileKind.M2), Tile(TileKind.M4))), Tile(TileKind.M3)) == frozenset({TileKind.M3})
-        assert _kuikae_ban(Pon((Tile(TileKind.EAST), Tile(TileKind.EAST))), Tile(TileKind.EAST)) == frozenset(
-            {TileKind.EAST}
-        )
-
+class TestPao:
     def test_pao_tsumo_shifts_payment_to_the_liable(self) -> None:
         hand = Hand(tuple(parse_mpsz("555z666z777z789s11p")))
         winning = parse_mpsz("7s")[0]

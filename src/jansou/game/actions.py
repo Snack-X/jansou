@@ -33,6 +33,9 @@ _PON_SIZE = 2
 _KAN_HAND_TILES = 3
 _SUIT_MAX = 9
 _RUN_SIZE = 3
+_CHII_SPAN = 3
+_LOW_EDGE = 6
+_HIGH_EDGE = 4
 
 
 @dataclass(frozen=True)
@@ -423,6 +426,26 @@ def _discards(state: GameState, seat: int) -> list[Action]:
     return options
 
 
+def kuikae_banned_kinds(choice: Action, tile: Tile) -> frozenset[TileKind]:
+    """The kinds the swap-calling ban forbids discarding after a call.
+
+    Args:
+        choice: The chii or pon claiming the tile.
+        tile: The claimed tile.
+
+    Returns:
+        The claimed kind, plus the suji kind when a chii claims a run's edge.
+    """
+    banned = {tile.kind}
+    if isinstance(choice, Chii) and tile.kind.rank is not None:
+        ranks = sorted(used.kind for used in (*choice.tiles, tile))
+        if ranks[0] == tile.kind and tile.kind.rank <= _LOW_EDGE:
+            banned.add(TileKind(tile.kind + _CHII_SPAN))
+        elif ranks[-1] == tile.kind and tile.kind.rank >= _HIGH_EDGE:
+            banned.add(TileKind(tile.kind - _CHII_SPAN))
+    return frozenset(banned)
+
+
 # --- Reactions ----------------------------------------------------------------
 
 
@@ -477,7 +500,7 @@ def _open_kan_option(state: GameState, seat: int, tile: Tile) -> list[Action]:
 
 
 def _chii_options(state: GameState, seat: int, tile: Tile) -> list[Action]:
-    """Every run pairing that claims the tile, red copies distinguished."""
+    """Every run pairing that claims the tile and leaves a discard, red copies distinguished."""
     if state.rules.is_sanma or not tile.kind.is_suited:
         return []
     player = state.players[seat]
@@ -490,8 +513,20 @@ def _chii_options(state: GameState, seat: int, tile: Tile) -> list[Action]:
         needed = [suited_kind(tile.suit, value) for value in ranks if value != rank]
         picks = [_distinct_by_red([held for held in player.concealed if held.kind is kind]) for kind in needed]
         if all(picks):
-            options.extend(Chii(tuple(sorted((first, second)))) for first in picks[0] for second in picks[1])
+            pairings = (Chii(tuple(sorted((first, second)))) for first in picks[0] for second in picks[1])
+            options.extend(option for option in pairings if _chii_leaves_discard(state, seat, option, tile))
     return options
+
+
+def _chii_leaves_discard(state: GameState, seat: int, choice: Chii, tile: Tile) -> bool:
+    """Whether some discard stays legal after the chii's swap-calling ban."""
+    if not state.rules.kuikae_ban:
+        return True
+    banned = kuikae_banned_kinds(choice, tile)
+    remaining = list(state.players[seat].concealed)
+    for used in choice.tiles:
+        remaining.remove(used)
+    return any(held.kind not in banned for held in remaining)
 
 
 def robbed_kan_reactions(state: GameState, seat: int, robbed_tile: Tile, *, added_kan: bool) -> list[Action]:

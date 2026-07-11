@@ -24,6 +24,7 @@ from jansou.game.actions import (
     Tsumo,
     discard_reactions,
     is_furiten,
+    kuikae_banned_kinds,
     north_reactions,
     robbed_kan_reactions,
     self_actions,
@@ -187,6 +188,41 @@ class TestReactions:
     def test_no_reaction_window(self) -> None:
         state = build(["", "123m456p789p22s", "", ""], last_discard=(0, Tile(TileKind.S9)))
         assert discard_reactions(state, 1, final=False) == []
+
+
+class TestKuikae:
+    def test_banned_kinds(self) -> None:
+        assert kuikae_banned_kinds(Chii((Tile(TileKind.M4), Tile(TileKind.M5))), Tile(TileKind.M3)) == frozenset(
+            {TileKind.M3, TileKind.M6}
+        )
+        assert kuikae_banned_kinds(Chii((Tile(TileKind.M5), Tile(TileKind.M6))), Tile(TileKind.M7)) == frozenset(
+            {TileKind.M7, TileKind.M4}
+        )
+        assert kuikae_banned_kinds(Chii((Tile(TileKind.M1), Tile(TileKind.M2))), Tile(TileKind.M3)) == frozenset(
+            {TileKind.M3}
+        )
+        assert kuikae_banned_kinds(Chii((Tile(TileKind.M2), Tile(TileKind.M4))), Tile(TileKind.M3)) == frozenset(
+            {TileKind.M3}
+        )
+        assert kuikae_banned_kinds(Pon((Tile(TileKind.EAST), Tile(TileKind.EAST))), Tile(TileKind.EAST)) == frozenset(
+            {TileKind.EAST}
+        )
+
+    def test_chii_refused_when_the_ban_would_leave_no_discard(self) -> None:
+        rules = Rules(kuikae_ban=True)
+        state = build(["", "3456m", "", ""], last_discard=(0, Tile(TileKind.M3)), rules=rules)
+        assert discard_reactions(state, 1, final=False) == []
+
+    def test_chii_kept_when_a_free_kind_remains(self) -> None:
+        rules = Rules(kuikae_ban=True)
+        state = build(["", "2456m", "", ""], last_discard=(0, Tile(TileKind.M3)), rules=rules)
+        chiis = [action for action in discard_reactions(state, 1, final=False) if isinstance(action, Chii)]
+        assert len(chiis) == 2  # 234 and 345 pairings both leave a legal discard
+
+    def test_chii_kept_without_the_ban(self) -> None:
+        state = build(["", "3456m", "", ""], last_discard=(0, Tile(TileKind.M3)))
+        actions = discard_reactions(state, 1, final=False)
+        assert any(isinstance(action, Chii) for action in actions)
 
 
 class TestRobbingAndNorth:
