@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import argparse
 import glob
+import gzip
 import multiprocessing
 import sys
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import ParseError
 
 from jansou.io.mjai import parse_mjai
 from jansou.io.mjlog import parse_mjlog
@@ -79,9 +81,9 @@ class Summary:
 def iter_games(path: str | Path) -> Iterator[Paifu]:
     """Yield the one or more games a file holds, dispatched on its content.
 
-    The format is detected from the bytes: a gzip magic number or a leading
-    ``<`` is mjlog; ``#json=`` lines or a ``{...}`` body with a ``"log"`` key is
-    Tenhou JSON; anything else is treated as MJAI.
+    The format is detected from the bytes, decompressed first when gzipped: a
+    leading ``<`` is mjlog; ``#json=`` lines or a ``{...}`` body with a
+    ``"log"`` key is Tenhou JSON; anything else is treated as MJAI.
 
     Args:
         path: The file to read and parse.
@@ -90,8 +92,9 @@ def iter_games(path: str | Path) -> Iterator[Paifu]:
         Each parsed game the file contains.
     """
     data = Path(path).read_bytes()
-    head = data[:2]
-    if head == b"\x1f\x8b" or data.lstrip()[:1] == b"<":
+    if data[:2] == b"\x1f\x8b":
+        data = gzip.decompress(data)
+    if data.lstrip()[:1] == b"<":
         yield parse_mjlog(data)
         return
     text = data.decode()
@@ -132,7 +135,7 @@ def check_file(path: str, max_failures: int = 5) -> FileReport:
                 failed += 1
                 if len(failures) < max_failures:
                     failures.append(f"{path}: seat {verdict.winner}: {verdict.detail}")
-    except (ValueError, KeyError, IndexError, OSError) as error:
+    except (ValueError, KeyError, IndexError, OSError, ParseError) as error:
         return FileReport(path, error=f"{type(error).__name__}: {error}")
     return FileReport(path, passed=passed, failed=failed, failures=tuple(failures))
 

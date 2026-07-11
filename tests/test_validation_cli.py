@@ -75,6 +75,7 @@ _MJLOG_DRAW = (
 @pytest.fixture
 def mixed_dir(tmp_path: Path) -> Path:
     (tmp_path / "game.jsonl").write_text(_MJAI)
+    (tmp_path / "game.jsonl.gz").write_bytes(gzip.compress(_MJAI.encode()))
     (tmp_path / "game.json").write_text(json.dumps(_TENHOU))
     (tmp_path / "urls.txt").write_text(f"https://tenhou.net/6/#json={json.dumps(_TENHOU)}&ts=0\n")
     (tmp_path / "game.mjlog").write_bytes(gzip.compress(_MJLOG_DRAW.encode()))
@@ -84,7 +85,8 @@ def mixed_dir(tmp_path: Path) -> Path:
 
 class TestFormatDetection:
     def test_each_format_is_recognized(self, mixed_dir: Path) -> None:
-        for name in ("game.jsonl", "game.json", "urls.txt", "game.mjlog", "plain.xml"):
+        # Gzip is a wrapper, not a format: game.jsonl.gz must route to mjai.
+        for name in ("game.jsonl", "game.jsonl.gz", "game.json", "urls.txt", "game.mjlog", "plain.xml"):
             games = list(cli.iter_games(mixed_dir / name))
             assert games
             assert all(game.rounds for game in games)
@@ -123,6 +125,12 @@ class TestRun:
     def test_unparseable_file_becomes_an_error(self, tmp_path: Path) -> None:
         (tmp_path / "broken.jsonl").write_text('{"type":"start_kyoku"}')  # missing required fields
         summary = cli.run([str(tmp_path / "*.jsonl")])
+        assert summary.errors == 1
+        assert not summary.ok
+
+    def test_malformed_xml_becomes_an_error(self, tmp_path: Path) -> None:
+        (tmp_path / "broken.xml").write_text("<mjloggm")  # truncated tag: an XML ParseError
+        summary = cli.run([str(tmp_path / "*.xml")])
         assert summary.errors == 1
         assert not summary.ok
 
