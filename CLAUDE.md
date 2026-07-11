@@ -37,7 +37,7 @@
 - `analysis/` shanten, waits, efficiency — pure, stateless.
 - `scoring/` fu, yaku, score — pure; `score(hand, tile, WinContext)` is the entry point.
 - `game/` the engine; `state.py` is the only mutable layer, and `Environment`   holds the single seeded RNG (agents seed themselves).
-- `io/` `paifu.py` defines the format-neutral `Paifu` IR + `replay_round`; every   reader/writer (mjlog, tenhou_json, mjai) and `from_game` route through it.
+- `io/` `paifu.py` defines the format-neutral `Paifu` IR + `replay_round`; every   reader/writer (mjlog, tenhou_json, mjai) and `from_game` route through it.   `replay.py` re-runs a `Paifu` through the engine as the live decision stream.
 - `validation/` scores parsed logs against their recorded values.
 
 Respect the layer boundaries: parsing enforces only surface grammar, hand validity lives in `hand.py`, positional legality lives only in the environment, and analysis/scoring are pure and stateless.
