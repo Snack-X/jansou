@@ -4,7 +4,7 @@
 
 | Name                                  |    Stmts |     Miss |   Branch |   BrPart |    Cover |   Missing |
 |-------------------------------------- | -------: | -------: | -------: | -------: | -------: | --------: |
-| src/jansou/\_\_init\_\_.py            |        0 |        0 |        0 |        0 |     100% |           |
+| src/jansou/\_\_init\_\_.py            |        2 |        0 |        0 |        0 |     100% |           |
 | src/jansou/analysis/\_\_init\_\_.py   |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/analysis/decompose.py      |      120 |        0 |       30 |        0 |     100% |           |
 | src/jansou/analysis/efficiency.py     |       76 |        0 |       28 |        0 |     100% |           |
@@ -18,9 +18,9 @@
 | src/jansou/game/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/game/actions.py            |      255 |        0 |       76 |        0 |     100% |           |
 | src/jansou/game/agents.py             |      209 |        0 |       66 |        0 |     100% |           |
-| src/jansou/game/environment.py        |       55 |        0 |       12 |        0 |     100% |           |
+| src/jansou/game/environment.py        |       58 |        0 |       10 |        0 |     100% |           |
 | src/jansou/game/events.py             |       76 |        0 |        2 |        0 |     100% |           |
-| src/jansou/game/flow.py               |      511 |        0 |      172 |        0 |     100% |           |
+| src/jansou/game/flow.py               |      518 |        0 |      172 |        0 |     100% |           |
 | src/jansou/game/progression.py        |       63 |        0 |       26 |        0 |     100% |           |
 | src/jansou/game/state.py              |       75 |        0 |        6 |        0 |     100% |           |
 | src/jansou/game/wall.py               |       40 |        0 |        8 |        0 |     100% |           |
@@ -38,8 +38,8 @@
 | src/jansou/scoring/yaku.py            |      268 |        0 |      106 |        0 |     100% |           |
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
-| src/jansou/validation/cli.py          |      126 |        0 |       42 |        0 |     100% |           |
-| **TOTAL**                             | **3504** |    **0** | **1016** |    **0** | **100%** |           |
+| src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
+| **TOTAL**                             | **3519** |    **0** | **1016** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
