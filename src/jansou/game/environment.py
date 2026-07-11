@@ -73,7 +73,7 @@ class DecisionRequest:
     Attributes:
         actions: The offered legal actions; the answer must be one of these.
         events: The events newly emitted since the previous request, masked
-            for the deciding seat.
+            for the deciding seat (whole for a seat in ``unmasked_seats``).
     """
 
     seat: int
@@ -83,7 +83,14 @@ class DecisionRequest:
 
 
 class Environment:
-    """The referee and engine for one game."""
+    """The referee and engine for one game.
+
+    For training tooling that may see hidden information, ``state`` -- the live
+    game state of the deal in progress, complete and unmasked, wall included --
+    is the sanctioned way to inspect hands and the remaining wall mid-game;
+    read it, never mutate it. ``unmasked_seats`` complements it by delivering
+    events unmasked to chosen seats.
+    """
 
     def __init__(
         self,
@@ -92,6 +99,7 @@ class Environment:
         seed: int | None = None,
         walls: list[tuple[Tile, ...]] | None = None,
         record_decisions: bool = False,
+        unmasked_seats: frozenset[int] = frozenset(),
     ) -> None:
         """Configure a game before it is run.
 
@@ -102,6 +110,9 @@ class Environment:
                 of shuffling; ``None`` to shuffle a fresh wall each deal.
             record_decisions: Whether to keep every decision point in
                 ``decisions`` (one list per deal, parallel to ``records``).
+            unmasked_seats: Seats exempt from event masking -- each observes
+                every event whole (all dealt hands, every draw's tile), for
+                perfect-information "oracle" training. Empty for normal play.
         """
         self.rules = rules
         self._rng = random.Random(seed)
@@ -109,6 +120,7 @@ class Environment:
         self.records: list[list[Event]] = []
         self.record_decisions = record_decisions
         self.decisions: list[list[Decision]] = []
+        self.unmasked_seats = frozenset(unmasked_seats)
         self.state: GameState | None = None
 
     def run(self, agents: list[Agent], names: tuple[str, ...] | None = None) -> GameResult:
@@ -134,7 +146,7 @@ class Environment:
 
         def fan_out(event: Event) -> None:
             for seat, agent in enumerate(agents):
-                agent.observe(event.mask_for(seat))
+                agent.observe(self._view(event, seat))
 
         game = self.play(names, observe=fan_out)
         request = next(game)
@@ -229,7 +241,7 @@ class Environment:
         steps = deal_steps(state, emit)
         point = next(steps)
         while True:
-            events = tuple(event.mask_for(point.seat) for event in pending)
+            events = tuple(self._view(event, point.seat) for event in pending)
             pending.clear()
             choice = yield DecisionRequest(point.seat, point.kind, point.actions, events)
             if choice not in point.actions:
@@ -240,6 +252,10 @@ class Environment:
                 point = steps.send(choice)
             except StopIteration as stop:
                 return stop.value
+
+    def _view(self, event: Event, seat: int) -> Event:
+        """The event as a seat observes it: whole for oracle seats, else masked."""
+        return event if seat in self.unmasked_seats else event.mask_for(seat)
 
     def _wall(self, deal_index: int) -> Wall:
         """The wall for a deal: a predefined one, or a fresh shuffle."""

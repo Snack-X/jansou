@@ -11,7 +11,7 @@ from jansou.core.tiles import full_tile_set
 from jansou.game.actions import Tsumo
 from jansou.game.agents import Agent, RandomAgent, SimpleAgent
 from jansou.game.environment import Environment, GameConfigError, IllegalActionError
-from jansou.game.events import DealStart, GameEnd, GameStart, Win
+from jansou.game.events import DealStart, Draw, GameEnd, GameStart, Win
 
 
 def _assert_conserved(scores: tuple[int, ...], start_total: int) -> None:
@@ -178,6 +178,46 @@ def _drive(env: Environment, agents: list[Agent]) -> object:
             request = game.send(action)
         except StopIteration as stop:
             return stop.value
+
+
+class TestOracleObservation:
+    def test_oracle_seat_sees_everything_others_unchanged(self) -> None:
+        env = Environment(Rules(), seed=3, unmasked_seats=frozenset({0}))
+        oracle, normal = _EventLog(), _EventLog()
+        env.run([oracle, normal, SimpleAgent(), SimpleAgent()])
+        oracle_start = next(event for event in oracle.seen if isinstance(event, DealStart))
+        assert all(hand is not None for hand in oracle_start.hands)
+        assert all(event.tile is not None for event in oracle.seen if isinstance(event, Draw))
+        normal_start = next(event for event in normal.seen if isinstance(event, DealStart))
+        assert normal_start.hands[1] is not None
+        assert normal_start.hands[0] is None
+        assert any(event.tile is None for event in normal.seen if isinstance(event, Draw))
+
+    def test_observation_does_not_perturb_the_game(self) -> None:
+        masked = Environment(Rules(), seed=7)
+        masked_result = masked.run([RandomAgent(seat) for seat in range(4)])
+        unmasked = Environment(Rules(), seed=7, unmasked_seats=frozenset(range(4)))
+        unmasked_result = unmasked.run([RandomAgent(seat) for seat in range(4)])
+        assert unmasked_result == masked_result
+        assert unmasked.records == masked.records
+
+    def test_play_requests_carry_whole_events_for_oracle_seats(self) -> None:
+        game = Environment(Rules(), seed=5, unmasked_seats=frozenset(range(4))).play()
+        request = next(game)
+        deal_start = next(event for event in request.events if isinstance(event, DealStart))
+        assert all(hand is not None for hand in deal_start.hands)
+
+
+class _EventLog(SimpleAgent):
+    """A playing agent that keeps every event it observes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen: list = []
+
+    def observe(self, event: object) -> None:
+        super().observe(event)
+        self.seen.append(event)
 
 
 class TestMaskingAndNotification:
