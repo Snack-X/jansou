@@ -57,6 +57,7 @@ exclude = [
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["examples"]
 
 [tool.ruff.lint]
 select = ["ALL"]
