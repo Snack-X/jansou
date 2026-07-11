@@ -290,6 +290,14 @@ class TestRiichiGating:
         state = _four("234m345m567p234s8s", drawn="9s", drain=119)
         assert not [action for action in self_actions(state) if isinstance(action, Riichi)]
 
+    def test_riichi_without_draw_flag_lifts_the_refusal(self) -> None:
+        state = _four("234m345m567p234s8s", drawn="9s", drain=119, rules=Rules(riichi_without_draw=True))
+        assert [action for action in self_actions(state) if isinstance(action, Riichi)]
+
+    def test_riichi_refused_on_the_final_discard(self) -> None:
+        state = _four("234m345m567p234s8s", drawn="9s", drain=122, rules=Rules(riichi_without_draw=True))
+        assert not [action for action in self_actions(state) if isinstance(action, Riichi)]
+
     def test_riichi_without_tenpai_offers_every_tile(self) -> None:
         state = _four("123m456m11p22p33s5z", drawn="7z", rules=Rules(riichi_without_tenpai=True))
         assert [action for action in self_actions(state) if isinstance(action, Riichi)]

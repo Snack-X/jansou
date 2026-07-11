@@ -82,7 +82,9 @@ class TestPresets:
     def test_association_base_via_renmei(self) -> None:
         rules = preset("renmei")
         # Association base differences.
+        assert rules.starting_points == 30_000
         assert rules.double_wind_fu == 2
+        assert rules.kuikae_ban
         assert not rules.double_yakuman
         assert not rules.aka_dora
         assert not rules.abort_kyuushu_kyuuhai
@@ -110,6 +112,7 @@ class TestPresets:
         assert rules.multiple_ron
         assert rules.kuikae_ban  # the correction note
         assert rules.formal_tenpai
+        assert not rules.allow_negative_scores
         assert rules.leftover_deposits_to_first
         # Tenhou's own override.
         assert not rules.double_yakuman
@@ -125,9 +128,25 @@ class TestPresets:
         assert rules.kokushi_ankan_chankan
         assert rules.double_yakuman  # not Tenhou's override
 
-    def test_saikouisen_and_kyokai_identical(self) -> None:
-        # Kyokai is identical in overrides to saikouisen.
-        assert preset("saikouisen") == preset("kyokai")
+    def test_saikouisen_and_kyokai_differ_only_in_points(self) -> None:
+        # Kyokai keeps the 25000 start; the rule flags match saikouisen.
+        assert preset("kyokai") == replace(preset("saikouisen"), starting_points=25_000)
+
+    def test_saikouisen_classic(self) -> None:
+        rules = preset("saikouisen-classic")
+        assert not rules.kuikae_ban  # even the identical tile may be swapped
+        assert not rules.tenpai_declaration
+        assert not rules.dealer_repeat_on_tenpai
+        assert rules.riichi_without_tenpai
+
+    def test_mu(self) -> None:
+        rules = preset("mu")
+        assert rules.honba_value == 0
+        assert not rules.multiple_yakuman
+        assert not rules.closed_kan_after_riichi
+        assert not rules.kuikae_ban
+        assert rules.noten_penalty_pool == 0
+        assert rules.tenpai_declaration  # declaring decides dealer continuation
 
     def test_m_league(self) -> None:
         rules = preset("m-league")
@@ -137,10 +156,12 @@ class TestPresets:
         assert rules.pao_suukantsu
         assert rules.leftover_deposits_to_first
         assert rules.rank_ties_shared  # keeps the base's shared placement
-        assert rules.starting_points == 25_000  # four-player presets do not pin
+        assert rules.starting_points == 25_000  # reverting the association base
 
     def test_saikyosen_reverts_tie_break(self) -> None:
-        assert not preset("saikyosen").rank_ties_shared
+        rules = preset("saikyosen")
+        assert not rules.rank_ties_shared
+        assert rules.starting_points == 30_000
 
     def test_three_player_presets_pin_setup(self) -> None:
         for name in ("tenhou-3p", "mahjong-soul-3p"):

@@ -391,7 +391,9 @@ def _riichi_options(state: GameState, seat: int) -> list[Action]:
     rules = state.rules
     if not player.is_concealed or player.is_riichi or state.scores[seat] < _RIICHI_DEPOSIT:
         return []
-    if state.wall.live_draws_remaining < state.player_count and not rules.riichi_without_draw:
+    remaining = state.wall.live_draws_remaining
+    # Riichi is never allowed on the final discard (houtei).
+    if remaining == 0 or (remaining < state.player_count and not rules.riichi_without_draw):
         return []
     # The self menu follows a draw, so the drawn tile is always present here.
     candidates: list[Action] = [Riichi(tile) for tile in _distinct_by_red(player.concealed)]

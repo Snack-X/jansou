@@ -172,7 +172,9 @@ _DEFAULT = Rules()
 #: as differences from the default baseline.
 _ASSOCIATION_BASE = replace(
     _DEFAULT,
+    starting_points=30_000,
     double_wind_fu=2,
+    kuikae_ban=True,
     double_yakuman=False,
     aka_dora=False,
     abort_kyuushu_kyuuhai=False,
@@ -197,6 +199,7 @@ _NET_MAHJONG_BASE = replace(
     multiple_ron=True,
     kuikae_ban=True,
     formal_tenpai=True,
+    allow_negative_scores=False,
     leftover_deposits_to_first=True,
 )
 
@@ -242,9 +245,10 @@ PRESETS: MappingProxyType[str, Rules] = MappingProxyType(
             kan_dora=False,
             riichi_without_tenpai=True,
             closed_kan_after_riichi=False,
-            kuikae_ban=True,
+            kuikae_ban=False,
             noten_penalty_pool=0,
             formal_tenpai=False,
+            tenpai_declaration=False,
             dealer_repeat_on_tenpai=False,
             ippatsu=False,
         ),
@@ -252,14 +256,17 @@ PRESETS: MappingProxyType[str, Rules] = MappingProxyType(
             _ASSOCIATION_BASE,
             honba_value=0,
             kazoe_yakuman=False,
+            multiple_yakuman=False,
             ura_dora=False,
             kan_dora=False,
-            kuikae_ban=True,
+            closed_kan_after_riichi=False,
+            kuikae_ban=False,
             noten_penalty_pool=0,
             ippatsu=False,
         ),
         "kyokai": replace(
             _ASSOCIATION_BASE,
+            starting_points=25_000,
             kiriage_mangan=True,
             kazoe_yakuman=False,
             pao_daisangen=False,
@@ -273,6 +280,7 @@ PRESETS: MappingProxyType[str, Rules] = MappingProxyType(
         ),
         "m-league": replace(
             _ASSOCIATION_BASE,
+            starting_points=25_000,
             kiriage_mangan=True,
             kazoe_yakuman=False,
             aka_dora=True,
