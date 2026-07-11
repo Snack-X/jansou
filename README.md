@@ -16,11 +16,11 @@
 | src/jansou/core/rules.py              |       80 |        0 |       10 |        0 |     100% |           |
 | src/jansou/core/tiles.py              |      171 |        0 |       24 |        0 |     100% |           |
 | src/jansou/game/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
-| src/jansou/game/actions.py            |      259 |        0 |       76 |        0 |     100% |           |
+| src/jansou/game/actions.py            |      280 |        0 |       86 |        0 |     100% |           |
 | src/jansou/game/agents.py             |      204 |        0 |       64 |        0 |     100% |           |
 | src/jansou/game/environment.py        |       58 |        0 |       10 |        0 |     100% |           |
 | src/jansou/game/events.py             |       76 |        0 |        2 |        0 |     100% |           |
-| src/jansou/game/flow.py               |      517 |        0 |      172 |        0 |     100% |           |
+| src/jansou/game/flow.py               |      515 |        0 |      168 |        0 |     100% |           |
 | src/jansou/game/progression.py        |       63 |        0 |       26 |        0 |     100% |           |
 | src/jansou/game/state.py              |       75 |        0 |        6 |        0 |     100% |           |
 | src/jansou/game/wall.py               |       40 |        0 |        8 |        0 |     100% |           |
@@ -29,6 +29,7 @@
 | src/jansou/io/mjai.py                 |      111 |        0 |       36 |        0 |     100% |           |
 | src/jansou/io/mjlog.py                |      268 |        0 |       80 |        0 |     100% |           |
 | src/jansou/io/paifu.py                |      183 |        0 |       38 |        0 |     100% |           |
+| src/jansou/io/replay.py               |      222 |        0 |       78 |        0 |     100% |           |
 | src/jansou/io/tenhou\_json.py         |      209 |        0 |       70 |        0 |     100% |           |
 | src/jansou/io/tiles.py                |       34 |        0 |       12 |        0 |     100% |           |
 | src/jansou/scoring/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |     100% |           |
@@ -39,7 +40,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **3533** |    **0** | **1018** |    **0** | **100%** |           |
+| **TOTAL**                             | **3774** |    **0** | **1102** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
