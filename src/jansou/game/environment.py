@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from jansou.core.tiles import full_tile_set
 from jansou.game.events import GameEnd, GameStart
-from jansou.game.flow import deal_steps, new_deal
+from jansou.game.flow import IllegalActionError, deal_steps, new_deal
 from jansou.game.progression import advance, rank, settle_deposits, starting_position
 from jansou.game.wall import Wall
 
@@ -32,10 +32,6 @@ if TYPE_CHECKING:
     from jansou.game.events import Event
     from jansou.game.flow import DealOutcome, DecisionKind
     from jansou.game.state import GameState
-
-
-class IllegalActionError(ValueError):
-    """An agent returned an action outside the offered set (§14.10, §20)."""
 
 
 class GameConfigError(ValueError):

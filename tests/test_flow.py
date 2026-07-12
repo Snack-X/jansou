@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
 from jansou.core.rules import Rules
@@ -36,6 +38,7 @@ from jansou.game.events import (
 from jansou.game.events import Discard as DiscardEvent
 from jansou.game.flow import (
     DecisionKind,
+    IllegalActionError,
     Position,
     _find_liability,
     _record_liability,
@@ -257,6 +260,23 @@ class TestCalls:
         assert calls[0].meld_type is MeldType.PON
         assert any(meld.type is MeldType.PON for meld in state.players[1].melds)
         assert state.players[0].discards[0].called_away  # the discard was claimed
+
+    def test_off_menu_discard_after_a_pon_is_rejected(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.EAST))
+        rules = Rules(kuikae_ban=True)
+        state = flow_state([_JUNK, "111z23456m123p45s", _JUNK, _JUNK], sequence=seq, rules=rules)
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF and (east := discard_of(actions, Tile(TileKind.EAST))):
+                return east
+            if seat == 1 and kind is DecisionKind.DISCARD_REACTION and any(isinstance(a, Pon) for a in actions):
+                return next(a for a in actions if isinstance(a, Pon))
+            if seat == 1 and kind is DecisionKind.SELF:
+                return Discard(Tile(TileKind.EAST))  # the swap-banned kind, absent from the menu
+            return just_discard(seat, kind, actions)
+
+        with pytest.raises(IllegalActionError, match="seat 1"):
+            play_deal(state, decide, Recorder())
 
     def test_open_kan_draws_replacement_and_reveals(self) -> None:
         seq = sequence_with(i14=Tile(TileKind.S5))

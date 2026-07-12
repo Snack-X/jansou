@@ -87,6 +87,10 @@ _DEALER_SHARE = 2
 _HONBA_DIVISOR = 3
 
 
+class IllegalActionError(ValueError):
+    """An agent returned an action outside the offered set (§14.10, §20)."""
+
+
 @unique
 class DecisionKind(Enum):
     """The five kinds of decision the environment requests from an agent."""
@@ -211,6 +215,10 @@ def play_deal(state: GameState, decide: Decide, emit: Emit) -> DealOutcome:
 
     Returns:
         The deal's settled outcome, for the game loop to advance from.
+
+    Raises:
+        IllegalActionError: If ``decide`` returns an action outside the
+            offered set.
     """
     steps = deal_steps(state, emit)
     try:
@@ -230,13 +238,26 @@ def deal_steps(state: GameState, emit: Emit) -> Generator[DecisionPoint, Action,
 
     Yields:
         Each decision point; the generator must be resumed with the chosen
-        action, which is trusted to be among the offered ones.
+        action, which must be among the offered ones.
 
     Returns:
         The deal's settled outcome, as the generator's return value.
+
+    Raises:
+        IllegalActionError: If the caller sends an action outside the
+            offered set.
     """
     emit(_deal_start_event(state))
-    return (yield from _run(state, emit))
+    steps = _run(state, emit)
+    point = next(steps)
+    while True:
+        choice = yield point
+        if choice not in point.actions:
+            raise IllegalActionError(f"seat {point.seat} returned {choice!r}, not among the offered actions")
+        try:
+            point = steps.send(choice)
+        except StopIteration as stop:
+            return stop.value
 
 
 def _deal_start_event(state: GameState) -> DealStart:
