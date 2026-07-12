@@ -27,7 +27,7 @@
 | src/jansou/io/\_\_init\_\_.py         |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/io/from\_game.py           |       64 |        0 |       22 |        0 |     100% |           |
 | src/jansou/io/mjai.py                 |      111 |        0 |       36 |        0 |     100% |           |
-| src/jansou/io/mjlog.py                |      268 |        0 |       80 |        0 |     100% |           |
+| src/jansou/io/mjlog.py                |      280 |        0 |       84 |        0 |     100% |           |
 | src/jansou/io/paifu.py                |      183 |        0 |       38 |        0 |     100% |           |
 | src/jansou/io/replay.py               |      222 |        0 |       78 |        0 |     100% |           |
 | src/jansou/io/tenhou\_json.py         |      209 |        0 |       70 |        0 |     100% |           |
@@ -40,7 +40,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **3774** |    **0** | **1102** |    **0** | **100%** |           |
+| **TOTAL**                             | **3786** |    **0** | **1106** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
