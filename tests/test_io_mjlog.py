@@ -84,3 +84,25 @@ _MINIMAL = (
     '<RYUUKYOKU ba="0,0" sc="250,0,250,0,250,0,250,0" hai0="0,1,2,3,4,5,6,7,8,9,10,11,12" />'
     "</mjloggm>"
 )
+
+
+class TestFinalStandings:
+    def test_owari_parsed_to_the_standing(self) -> None:
+        doc = _MINIMAL.replace('hai0="0,1,2', 'owari="387,48.7,311,11.1,118,-38.2,184,-21.6" hai0="0,1,2')
+        paifu = parse_mjlog(doc.encode())
+        assert paifu.final_scores == (38700, 31100, 11800, 18400)
+        assert paifu.final_points == (48.7, 11.1, -38.2, -21.6)
+
+    def test_missing_owari_leaves_none(self) -> None:
+        paifu = parse_mjlog(_MINIMAL.encode())
+        assert paifu.final_scores is None
+        assert paifu.final_points is None
+
+    def test_real_logs_state_their_standing(self, dataset: Path) -> None:
+        for path in _sample(dataset, "mjlog/data/*/*gm-00a9-*.xml", 10):
+            paifu = parse_mjlog(path)
+            assert paifu.final_scores is not None
+            assert paifu.final_points is not None
+            assert len(paifu.final_scores) == paifu.player_count
+            assert len(paifu.final_points) == paifu.player_count
+            assert all(score % 100 == 0 for score in paifu.final_scores)

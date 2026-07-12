@@ -58,6 +58,13 @@ class TestEngineExport:
                     assert verdict.passed, verdict.detail
         assert checked > 0
 
+    def test_engine_records_carry_no_final_standing(self) -> None:
+        env = Environment(preset("tenhou"), seed=1)
+        env.run([RandomAgent(seat) for seat in range(4)])
+        paifu = paifu_from_game(env)
+        assert paifu.final_scores is None
+        assert paifu.final_points is None
+
 
 def _win(concealed: str, winning: str, *, seat: int, dealer: int) -> GameWin:
     """A recorded ron win scored in the context its replay will reproduce."""

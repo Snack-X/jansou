@@ -217,6 +217,43 @@ class TestDrawRoundTrips:
             assert isinstance(reparsed.rounds[0].outcome, Ryuukyoku)
 
 
+class TestFinalStandings:
+    def test_mjlog_carries_a_standing_on_a_final_win(self) -> None:
+        events = (*_go_around(), Draw(0, parse_mpsz("4s")[0]))
+        base = _game(_round_with(events, "123m456m789m11p234s", "4s", from_seat=0))
+        paifu = replace(base, final_scores=(38700, 31100, 11800, 18400), final_points=(48.7, 11.1, -38.2, -21.6))
+        document = dump_mjlog(paifu)
+        assert 'owari="387,48.7,311,11.1,118,-38.2,184,-21.6"' in document
+        reparsed = parse_mjlog(document.encode())
+        assert reparsed.final_scores == paifu.final_scores
+        assert reparsed.final_points == paifu.final_points
+
+    def test_mjlog_carries_a_negative_standing_on_a_final_draw(self) -> None:
+        outcome = Ryuukyoku(kind="exhaustive", deltas=(0, 0, 0, 0), tenpai=(False, False, False, False))
+        base = _game(_round((*_go_around(), Draw(0, parse_mpsz("1z")[0]), Discard(0, parse_mpsz("1z")[0])), outcome))
+        paifu = replace(base, final_scores=(24500, -2000, 22500, 55000), final_points=(4.5, -52.0, -17.5, 65.0))
+        document = dump_mjlog(paifu)
+        assert 'owari="245,4.5,-20,-52.0,225,-17.5,550,65.0"' in document
+        reparsed = parse_mjlog(document.encode())
+        assert reparsed.final_scores == paifu.final_scores
+        assert reparsed.final_points == paifu.final_points
+
+    def test_absent_standing_writes_no_owari(self) -> None:
+        outcome = Ryuukyoku(kind="exhaustive", deltas=(0, 0, 0, 0), tenpai=(False, False, False, False))
+        base = _game(_round((*_go_around(), Draw(0, parse_mpsz("1z")[0]), Discard(0, parse_mpsz("1z")[0])), outcome))
+        assert "owari" not in dump_mjlog(base)
+
+    def test_real_standings_survive_the_mjlog_writer(self, dataset: Path) -> None:
+        files = sorted(dataset.glob("mjlog/data/*/*.xml"))[:5]
+        if not files:
+            pytest.skip("no mjlog files present")
+        for path in files:
+            paifu = parse_mjlog(path)
+            reparsed = parse_mjlog(dump_mjlog(paifu).encode())
+            assert reparsed.final_scores == paifu.final_scores
+            assert reparsed.final_points == paifu.final_points
+
+
 class TestTsumogiriMarks:
     def _marked_game(self) -> Paifu:
         events = (

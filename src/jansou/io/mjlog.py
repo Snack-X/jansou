@@ -75,7 +75,30 @@ def parse_mjlog(source: str | Path | bytes) -> Paifu:
     if game_type & _NO_AKA_BIT:
         rules = replace(rules, aka_dora=False)
     rounds = _parse_rounds(root, player_count)
-    return Paifu(rules=rules, player_count=player_count, rounds=tuple(rounds))
+    final_scores, final_points = _parse_standings(root)
+    return Paifu(
+        rules=rules,
+        player_count=player_count,
+        rounds=tuple(rounds),
+        final_scores=final_scores,
+        final_points=final_points,
+    )
+
+
+def _parse_standings(root: ET.Element) -> tuple[tuple[int, ...] | None, tuple[float, ...] | None]:
+    """The final standing from the closing element's ``owari`` attribute.
+
+    The attribute alternates each seat's score in hundreds with the
+    platform's adjusted result; a truncated log carries none.
+    """
+    owari = next((element.get("owari") for element in reversed(list(root)) if element.get("owari")), None)
+    if owari is None:
+        return None, None
+    values = owari.split(",")
+    return (
+        tuple(int(value) * _HUNDREDS for value in values[0::2]),
+        tuple(float(value) for value in values[1::2]),
+    )
 
 
 def _read(source: str | Path | bytes) -> bytes:
@@ -309,11 +332,24 @@ def dump_mjlog(paifu: Paifu) -> str:
         go_type |= _SANMA_BIT
     if not paifu.rules.aka_dora:
         go_type |= _NO_AKA_BIT
-    rounds = "".join(_dump_round(round_log, paifu.rules, paifu.player_count) for round_log in paifu.rounds)
+    owari = _standings_attribute(paifu)
+    final = len(paifu.rounds) - 1
+    rounds = "".join(
+        _dump_round(round_log, paifu.rules, paifu.player_count, owari if index == final else None)
+        for index, round_log in enumerate(paifu.rounds)
+    )
     return f'<mjloggm ver="2.3"><GO type="{go_type}"/>{rounds}</mjloggm>'
 
 
-def _dump_round(round_log: RoundLog, rules: object, player_count: int) -> str:
+def _standings_attribute(paifu: Paifu) -> str | None:
+    """The ``owari`` value for the game's standing, or None when it has none."""
+    if paifu.final_scores is None or paifu.final_points is None:
+        return None
+    pairs = zip(paifu.final_scores, paifu.final_points, strict=True)
+    return ",".join(f"{score // _HUNDREDS},{points:.1f}" for score, points in pairs)
+
+
+def _dump_round(round_log: RoundLog, rules: object, player_count: int, owari: str | None) -> str:
     """One round's <INIT>, event tags, and closing <AGARI>/<RYUUKYOKU>."""
     round_id = round_log.round_wind * 4 + round_log.dealer
     seed = f"{round_id},{round_log.honba},{round_log.riichi_sticks},0,0,{tile_to_136(round_log.initial_dora)}"
@@ -325,7 +361,7 @@ def _dump_round(round_log: RoundLog, rules: object, player_count: int) -> str:
     init = f'<INIT seed="{seed}" ten="{ten}" oya="{round_log.dealer}"{hands}/>'
     last_draw: dict[int, int] = {}
     body = "".join(_dump_event(event, last_draw) for event in round_log.events)
-    return f"{init}{body}{_dump_outcome(round_log, rules, player_count)}"
+    return f"{init}{body}{_dump_outcome(round_log, rules, player_count, owari)}"
 
 
 def _dump_event(event: Event, last_draw: dict[int, int]) -> str:
@@ -361,17 +397,19 @@ def _discard_136(event: Discard, drawn_index: int | None) -> int:
     return index
 
 
-def _dump_outcome(round_log: RoundLog, rules: object, player_count: int) -> str:
+def _dump_outcome(round_log: RoundLog, rules: object, player_count: int, owari: str | None) -> str:
     """A round's closing element: one <AGARI> per win, or a <RYUUKYOKU>."""
     if isinstance(round_log.outcome, Ryuukyoku):
-        return _dump_ryuukyoku(round_log.outcome, player_count)
+        return _dump_ryuukyoku(round_log.outcome, player_count, owari)
     records = replay_round(round_log, rules, player_count)  # type: ignore[arg-type]
+    last = len(round_log.outcome) - 1
     return "".join(
-        _dump_agari(agari, record, player_count) for agari, record in zip(round_log.outcome, records, strict=True)
+        _dump_agari(agari, record, player_count, owari if index == last else None)
+        for index, (agari, record) in enumerate(zip(round_log.outcome, records, strict=True))
     )
 
 
-def _dump_agari(agari: Agari, record: object, player_count: int) -> str:
+def _dump_agari(agari: Agari, record: object, player_count: int, owari: str | None) -> str:
     """One <AGARI>, carrying the winning hand, wait, expected value, and deltas."""
     hand: Hand = record.hand  # type: ignore[attr-defined]
     hai = ",".join(str(tile_to_136(tile)) for tile in hand.concealed)
@@ -386,10 +424,12 @@ def _dump_agari(agari: Agari, record: object, player_count: int) -> str:
         attrs += f' m="{melds}"'
     if agari.ura_indicators:
         attrs += f' doraHaiUra="{",".join(str(tile_to_136(tile)) for tile in agari.ura_indicators)}"'
+    if owari is not None:
+        attrs += f' owari="{owari}"'
     return f"<AGARI {attrs}/>"
 
 
-def _dump_ryuukyoku(ryuukyoku: Ryuukyoku, player_count: int) -> str:
+def _dump_ryuukyoku(ryuukyoku: Ryuukyoku, player_count: int, owari: str | None) -> str:
     """One <RYUUKYOKU>, marking any counted-tenpai hands and the payments."""
     tenpai = "".join(
         f' hai{seat}=""' for seat in range(player_count) if seat < len(ryuukyoku.tenpai) and ryuukyoku.tenpai[seat]
@@ -397,7 +437,8 @@ def _dump_ryuukyoku(ryuukyoku: Ryuukyoku, player_count: int) -> str:
     deltas = ryuukyoku.deltas or (0,) * player_count
     sc = ",".join(f"0,{deltas[seat] // _HUNDREDS}" for seat in range(player_count))
     kind = "" if ryuukyoku.kind == "exhaustive" else f' type="{ryuukyoku.kind}"'
-    return f'<RYUUKYOKU{kind} ba="0,0" sc="{sc}"{tenpai}/>'
+    ending = "" if owari is None else f' owari="{owari}"'
+    return f'<RYUUKYOKU{kind} ba="0,0" sc="{sc}"{tenpai}{ending}/>'
 
 
 def _encode_meld(meld: Meld) -> int:

@@ -190,11 +190,17 @@ class Paifu:
         rules: The rules configuration the game was played under.
         player_count: The number of seats (three or four).
         rounds: The rounds played, in order.
+        final_scores: The final standing in points the log states outright,
+            per seat, or ``None`` when the source carries no standing.
+        final_points: The platform's adjusted result per seat (Tenhou's uma
+            column), or ``None`` when the source carries no standing.
     """
 
     rules: Rules
     player_count: int
     rounds: tuple[RoundLog, ...]
+    final_scores: tuple[int, ...] | None = None
+    final_points: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True)
