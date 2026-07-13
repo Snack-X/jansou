@@ -13,11 +13,12 @@ import gzip
 import json
 from pathlib import Path
 
-from jansou.core.hand import CallSource, Meld, MeldType
+from jansou.core.hand import FULL_HAND_SIZE, CallSource, Meld, MeldType
 from jansou.core.notation import dump_mjai as _dump_tiles
 from jansou.core.notation import parse_mjai as _parse_tiles
 from jansou.core.rules import Rules, preset
-from jansou.core.tiles import Tile, TileKind, Wind
+from jansou.core.tiles import Tile, TileKind, Wind, full_tile_set
+from jansou.game.wall import DEAD_WALL_SIZE
 from jansou.io.paifu import (
     Agari,
     Call,
@@ -39,6 +40,8 @@ _SOURCE_OF_RELATIVE = {1: CallSource.KAMICHA, 2: CallSource.TOIMEN, 3: CallSourc
 _STEPS_OF_SOURCE = {CallSource.KAMICHA: -1, CallSource.TOIMEN: 2, CallSource.SHIMOCHA: 1}
 #: Honba a single non-winner pays: two shares in sanma, three in yonma.
 _HONBA_SHARE = 100
+#: Kans that, spread across seats, abort the round.
+_KAN_CAP = 4
 
 
 class MjaiError(ValueError):
@@ -124,12 +127,14 @@ def _parse_body(
     last_discard: Tile | None = None
     robbed: Tile | None = None  # the added-kan or nuki tile a chankan ron wins on, until play continues
     reach_seat: int | None = None
+    drawn = 0
     for event in body:
         kind = event["type"]
         if kind == "tsumo":
             tile = _parse_tiles(event["pai"])[0]
             last_draw[event["actor"]] = tile
             robbed = None
+            drawn += 1
             events.append(Draw(event["actor"], tile))
         elif kind == "dahai":
             last_discard = _parse_tiles(event["pai"])[0]
@@ -156,7 +161,12 @@ def _parse_body(
             won_on = robbed if robbed is not None else last_discard
             agari.append(_agari(event, start, rules, player_count, last_draw, won_on, first=not agari))
         elif kind == "ryukyoku":
-            ryuukyoku = _ryuukyoku(event, player_count)
+            ryuukyoku = _ryuukyoku(
+                event,
+                player_count,
+                events=events,
+                wall_spent=drawn >= _live_wall_size(player_count),
+            )
     return events, tuple(agari) if agari else (ryuukyoku or Ryuukyoku())
 
 
@@ -220,11 +230,83 @@ def _value_from_deltas(deltas: tuple[int, ...], winner: int, *, honba: int, rule
     return deltas[winner] - sum(deltas) - honba_total
 
 
-def _ryuukyoku(event: dict, player_count: int) -> Ryuukyoku:
-    """An MJAI drawn round."""
+def _live_wall_size(player_count: int) -> int:
+    """The draws a deal affords before the live wall runs out.
+
+    A kan or a North trades a live tile away for its replacement, so the number
+    of draws a round can take is the same however many are called.
+
+    Args:
+        player_count: The number of seats at the table.
+
+    Returns:
+        The number of draws that spend the live wall exactly.
+    """
+    tiles = len(full_tile_set(player_count, aka_dora=False))
+    return tiles - DEAD_WALL_SIZE - FULL_HAND_SIZE * player_count
+
+
+def _abort_kind(events: list[Event], player_count: int) -> str:
+    """The abort a reason-less draw that fell short of the wall records.
+
+    Each accumulating abort leaves its own count behind in the round -- four
+    kans, four riichi, four winds -- so it can be read back from the events.
+    What no count explains is a triple ron, whose three declarations MJAI drops
+    from the stream entirely.
+
+    Args:
+        events: The round's events up to the draw.
+        player_count: The number of seats at the table.
+
+    Returns:
+        The Tenhou name of the abort.
+    """
+    if sum(1 for event in events if isinstance(event, Call) and event.meld.is_kan) >= _KAN_CAP:
+        return "kan4"
+    if len({event.seat for event in events if isinstance(event, Discard) and event.riichi}) >= player_count:
+        return "reach4"
+    if _four_winds(events, player_count):
+        return "kaze4"
+    return "ron3"
+
+
+def _four_winds(events: list[Event], player_count: int) -> bool:
+    """Whether every seat's uninterrupted first discard was the same wind."""
+    if any(isinstance(event, Call) for event in events):
+        return False
+    discards = [event for event in events if isinstance(event, Discard)]
+    if len(discards) != player_count:
+        return False
+    kinds = {discard.tile.kind for discard in discards}
+    return len(kinds) == 1 and next(iter(kinds)).is_wind
+
+
+def _ryuukyoku(event: dict, player_count: int, *, events: list[Event], wall_spent: bool) -> Ryuukyoku:
+    """An MJAI drawn round.
+
+    A Tenhou-sourced stream names no reason, so the draws it records are told
+    apart by where they fall. One taken in place of a discard is a nine-terminals
+    abort; one taken with the wall spent is the wall running out; and one that
+    falls short of the wall is the abort its own events account for. An explicit
+    ``reason`` is kept as the stream gives it.
+
+    Args:
+        event: The MJAI ``ryukyoku`` object.
+        player_count: The number of seats at the table.
+        events: The round's events up to the draw.
+        wall_spent: Whether every live draw the wall affords was taken.
+    """
+    reason = event.get("reason")
+    if reason is None:
+        if events and isinstance(events[-1], Draw):
+            reason = "yao9"
+        elif wall_spent:
+            reason = "exhaustive"
+        else:
+            reason = _abort_kind(events, player_count)
     tehais = event.get("tehais")
     tenpai = tuple(tehais[seat] is not None for seat in range(player_count)) if tehais else ()
-    return Ryuukyoku(kind=event.get("reason", "exhaustive"), deltas=tuple(event.get("deltas", ())), tenpai=tenpai)
+    return Ryuukyoku(kind=reason, deltas=tuple(event.get("deltas", ())), tenpai=tenpai)
 
 
 # --- Writing ----------------------------------------------------------------

@@ -11,8 +11,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from jansou.core.tiles import Tile, TileKind
+from jansou.game.actions import NineTerminals
 from jansou.io.mjai import MjaiError, parse_mjai
-from jansou.io.paifu import Kita
+from jansou.io.paifu import Kita, Ryuukyoku
+from jansou.io.replay import replay_round_decisions
 from jansou.validation.check import check_paifu
 
 
@@ -44,6 +46,8 @@ _START = '{"type":"start_game"}'
 _TSUMO = '{"type":"tsumo","actor":0,"pai":"C"}'
 _END_KYOKU = '{"type":"end_kyoku"}'
 _END_GAME = '{"type":"end_game"}'
+#: Draws a four-player wall affords: 136 tiles, less the 14-tile dead wall and four dealt hands.
+_LIVE_WALL_4P = 70
 
 
 class TestParsing:
@@ -78,6 +82,90 @@ class TestParsing:
     def test_ryukyoku_round_has_no_wins(self) -> None:
         draw = '{"type":"ryukyoku","reason":"exhaustive_draw","deltas":[0,0,0,0],"tehais":[["1m"],null,null,null]}'
         assert check_paifu(parse_mjai(_stream(_START_KYOKU, draw, _END_KYOKU))) == []
+
+    def test_reasonless_draw_with_the_wall_spent_is_exhaustive(self) -> None:
+        # A Tenhou-sourced stream omits the reason. Seventy draws spend a
+        # four-player wall, so this one is the wall running out.
+        turns: list[str] = []
+        for turn in range(_LIVE_WALL_4P):
+            actor = turn % 4
+            turns.append(f'{{"type":"tsumo","actor":{actor},"pai":"1m"}}')
+            turns.append(f'{{"type":"dahai","actor":{actor},"pai":"1m","tsumogiri":true}}')
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, *turns, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "exhaustive"
+
+    def test_reasonless_draw_with_the_wall_still_live_is_a_triple_ron(self) -> None:
+        # Three seats ron the discard and the round is abandoned. MJAI records
+        # neither the declarations nor a reason, and no count in the round
+        # accounts for the draw, so a triple ron is what is left.
+        dahai = '{"type":"dahai","actor":0,"pai":"2m","tsumogiri":false}'
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, _TSUMO, dahai, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "ron3"
+
+    def test_reasonless_draw_after_four_kans_is_a_four_kan_abort(self) -> None:
+        kans = [
+            f'{{"type":"ankan","actor":{seat},"consumed":["{tile}","{tile}","{tile}","{tile}"]}}'
+            for seat, tile in enumerate(("1m", "2m", "3m", "4m"))
+        ]
+        dahai = '{"type":"dahai","actor":3,"pai":"1p","tsumogiri":false}'
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, _TSUMO, *kans, dahai, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "kan4"
+
+    def test_reasonless_draw_after_four_riichi_is_a_four_riichi_abort(self) -> None:
+        reaches: list[str] = []
+        for seat in range(4):
+            reaches.append(f'{{"type":"reach","actor":{seat}}}')
+            reaches.append(f'{{"type":"dahai","actor":{seat},"pai":"1p","tsumogiri":false}}')
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, _TSUMO, *reaches, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "reach4"
+
+    def test_reasonless_draw_after_four_wind_discards_is_a_four_wind_abort(self) -> None:
+        winds = [f'{{"type":"dahai","actor":{seat},"pai":"E","tsumogiri":false}}' for seat in range(4)]
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, _TSUMO, *winds, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "kaze4"
+
+    def test_four_differing_first_discards_are_not_a_four_wind_abort(self) -> None:
+        # The seats must all discard the *same* wind for the round to abort on it.
+        discards = [
+            f'{{"type":"dahai","actor":{seat},"pai":"{pai}","tsumogiri":false}}'
+            for seat, pai in enumerate(("E", "S", "W", "N"))
+        ]
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, _TSUMO, *discards, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "ron3"
+
+    def test_a_call_rules_out_a_four_wind_abort(self) -> None:
+        # A claimed tile interrupts the first go-around, so the winds cannot abort.
+        winds = [f'{{"type":"dahai","actor":{seat},"pai":"E","tsumogiri":false}}' for seat in range(3)]
+        pon = '{"type":"pon","actor":3,"target":2,"pai":"E","consumed":["E","E"]}'
+        dahai = '{"type":"dahai","actor":3,"pai":"E","tsumogiri":false}'
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        stream = _stream(_START_KYOKU, _TSUMO, *winds, pon, dahai, draw, _END_KYOKU)
+        outcome = parse_mjai(stream).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "ron3"
+
+    def test_reasonless_draw_before_a_discard_is_nine_terminals(self) -> None:
+        # The same reason-less object, but falling on a first draw before its
+        # discard, is a nine-terminals abort -- and replays as one.
+        draw = '{"type":"ryukyoku","deltas":[0,0,0,0]}'
+        paifu = parse_mjai(_stream(_NINE_TERMINALS_START, _DEALER_FIRST_DRAW, draw, _END_KYOKU))
+        outcome = paifu.rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "yao9"
+        replayed = list(replay_round_decisions(paifu, 0))
+        assert isinstance(replayed[-1].chosen, NineTerminals)
 
     def test_kita_becomes_a_north_extraction(self) -> None:
         # A three-player nukidora: the kita event sets a North aside as a bonus tile.
@@ -149,6 +237,18 @@ _START_KYOKU = (
     '["1p","1p","1p","2p","2p","2p","3p","3p","3p","5s","5s","6s","6s"],'
     '["9m","9m","9m","8p","8p","8p","7s","7s","7s","E","E","S","S"]]}'
 )
+
+# The dealer holds all thirteen distinct terminals and honors, so a first draw
+# lets them declare nine terminals.
+_NINE_TERMINALS_START = (
+    '{"type":"start_kyoku","bakaze":"E","dora_marker":"9s","kyoku":1,"honba":0,"kyotaku":0,"oya":0,'
+    '"scores":[25000,25000,25000,25000],"tehais":['
+    '["1m","9m","1p","9p","1s","9s","E","S","W","N","P","F","C"],'
+    '["2m","3m","4m","5m","6m","7m","8m","2p","3p","4p","5p","6p","7p"],'
+    '["2s","3s","4s","5s","6s","7s","8s","2m","3m","4m","5m","6m","7m"],'
+    '["2p","3p","4p","5p","6p","7p","8p","2s","3s","4s","5s","6s","7s"]]}'
+)
+_DEALER_FIRST_DRAW = '{"type":"tsumo","actor":0,"pai":"8s"}'
 
 # Seat 0 (dealer) draws a third W and tsumos a shanpon W/C wait: the only yaku is
 # menzen tsumo (1 han), 30 fu with the concealed honor triplet, so a dealer tsumo
