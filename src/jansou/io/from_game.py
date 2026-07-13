@@ -54,7 +54,6 @@ if TYPE_CHECKING:
     from jansou.game.environment import Environment
 
 _SOURCE_OF_RELATIVE = {1: CallSource.KAMICHA, 2: CallSource.TOIMEN, 3: CallSource.SHIMOCHA}
-_HONBA_TSUMO_SHARE = 100
 
 
 def paifu_from_game(environment: Environment) -> Paifu:
@@ -80,12 +79,13 @@ def paifu_from_records(records: list[list[Event]], rules: Rules) -> Paifu:
     Returns:
         The neutral game record for the recorded deals.
     """
-    rounds = [_round_from_events(deal, rules.player_count) for deal in records]
+    rounds = [_round_from_events(deal, rules) for deal in records]
     return Paifu(rules=rules, player_count=rules.player_count, rounds=tuple(rounds))
 
 
-def _round_from_events(events: list[Event], player_count: int) -> RoundLog:
+def _round_from_events(events: list[Event], rules: Rules) -> RoundLog:
     """One `RoundLog` from a single deal's recorded events."""
+    player_count = rules.player_count
     start = next(event for event in events if isinstance(event, DealStart))
     normalized: list[Event] = []
     last_discard: Tile | None = None
@@ -110,7 +110,7 @@ def _round_from_events(events: list[Event], player_count: int) -> RoundLog:
             draw = event
         elif isinstance(event, ScoreChange):
             settlement = event
-    outcome = _outcome(wins, draw, settlement, start, player_count)
+    outcome = _outcome(wins, draw, settlement, start, rules)
     return RoundLog(
         round_wind=start.round_wind,
         dealer=start.dealer,
@@ -138,29 +138,25 @@ def _meld_of(call: GameCall, last_discard: Tile | None, player_count: int) -> Me
 
 
 def _outcome(
-    wins: list[GameWin], draw: GameRyuukyoku | None, settlement: ScoreChange | None, start: DealStart, player_count: int
+    wins: list[GameWin], draw: GameRyuukyoku | None, settlement: ScoreChange | None, start: DealStart, rules: Rules
 ) -> tuple[Agari, ...] | Ryuukyoku:
     """A round's wins or its draw, from the recorded terminal events."""
     if wins:
-        return tuple(
-            _agari_of(win, start, settlement, player_count, first=index == 0) for index, win in enumerate(wins)
-        )
+        return tuple(_agari_of(win, start, settlement, rules, first=index == 0) for index, win in enumerate(wins))
     deltas = tuple(settlement.deltas) if settlement is not None else ()
     kind = "exhaustive" if draw is None or draw.kind is RyuukyokuKind.EXHAUSTIVE else draw.kind.name.lower()
-    tenpai = tuple(seat in draw.counted_ready for seat in range(player_count)) if draw is not None else ()
+    tenpai = tuple(seat in draw.counted_ready for seat in range(rules.player_count)) if draw is not None else ()
     return Ryuukyoku(kind=kind, deltas=deltas, tenpai=tenpai)
 
 
-def _agari_of(
-    win: GameWin, start: DealStart, settlement: ScoreChange | None, player_count: int, *, first: bool
-) -> Agari:
+def _agari_of(win: GameWin, start: DealStart, settlement: ScoreChange | None, rules: Rules, *, first: bool) -> Agari:
     """One `Agari` from a recorded win, with value and deltas that a reader recovers."""
     is_tsumo = win.from_seat is None
     payment = win.result.payment
     value = payment.total - payment.honba - payment.sticks
     honba = start.honba if first else 0
-    single_win = settlement is not None and first and _is_only_win(settlement, win, player_count)
-    deltas = tuple(settlement.deltas) if single_win else _reconstructed_deltas(win, start.dealer, honba, player_count)
+    single_win = settlement is not None and first and _is_only_win(settlement, win, rules.player_count)
+    deltas = tuple(settlement.deltas) if single_win else _reconstructed_deltas(win, start.dealer, honba, rules)
     return Agari(
         winner=win.seat,
         from_seat=win.seat if is_tsumo else win.from_seat,
@@ -181,20 +177,20 @@ def _is_only_win(settlement: ScoreChange, win: GameWin, player_count: int) -> bo
     return receivers == 1 and settlement.deltas[win.seat] > 0
 
 
-def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, player_count: int) -> tuple[int, ...]:
+def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, rules: Rules) -> tuple[int, ...]:
     """Per-winner deltas that reproduce the win value under a reader's honba rule."""
     payment = win.result.payment
-    deltas = [0] * player_count
+    deltas = [0] * rules.player_count
     if win.from_seat is None:
-        for seat in range(player_count):
+        for seat in range(rules.player_count):
             if seat == win.seat:
                 continue
             share = payment.tsumo_dealer if seat == dealer else payment.tsumo_non_dealer
-            pay = share + _HONBA_TSUMO_SHARE * honba
+            pay = share + rules.honba_value * honba
             deltas[seat] -= pay
             deltas[win.seat] += pay
     else:
-        total = payment.ron + (player_count - 1) * _HONBA_TSUMO_SHARE * honba
+        total = payment.ron + rules.honba_per_counter * honba
         deltas[win.seat] += total
         deltas[win.from_seat] -= total
     return tuple(deltas)

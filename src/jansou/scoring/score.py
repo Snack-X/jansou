@@ -44,7 +44,6 @@ _DEALER_RON_MULT = 6
 _NON_DEALER_RON_MULT = 4
 _DEALER_SHARE_MULT = 2
 _NON_DEALER_SHARE_MULT = 1
-_HONBA_DIVISOR = 3
 
 
 class ScoringError(ValueError):
@@ -178,7 +177,7 @@ def base_points(han: int, fu: int, context: WinContext) -> tuple[int, LimitTier]
 def _payment(base: int, context: WinContext) -> Payment:
     """The payment a base scales to, given the seat and win type."""
     rules = context.rules
-    honba_total = 0
+    honba_total = rules.honba_per_counter * context.honba
     ron = tsumo_dealer = tsumo_non_dealer = 0
     if context.is_tsumo:
         if context.is_dealer:
@@ -188,13 +187,10 @@ def _payment(base: int, context: WinContext) -> Payment:
             tsumo_dealer = _ceil(_DEALER_SHARE_MULT * base, 100)
             tsumo_non_dealer = _ceil(_NON_DEALER_SHARE_MULT * base, 100)
             base_total = tsumo_dealer + tsumo_non_dealer * (rules.player_count - 2)
-        honba_total = (rules.player_count - 1) * (rules.honba_value // _HONBA_DIVISOR) * context.honba
     else:
         multiplier = _DEALER_RON_MULT if context.is_dealer else _NON_DEALER_RON_MULT
         ron = _ceil(multiplier * base, 100)
         base_total = ron
-        # The discarder pays the whole honba: one share per non-winner (two in sanma).
-        honba_total = (rules.player_count - 1) * (rules.honba_value // _HONBA_DIVISOR) * context.honba
     sticks = context.riichi_sticks * RIICHI_DEPOSIT
     return Payment(ron, tsumo_dealer, tsumo_non_dealer, honba_total, sticks, base_total + honba_total + sticks)
 

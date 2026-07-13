@@ -38,8 +38,6 @@ _SOURCE_OF_RELATIVE = {1: CallSource.KAMICHA, 2: CallSource.TOIMEN, 3: CallSourc
 #: Seats to step forward from the caller to reach each source. In sanma the three
 #: directions collapse onto two opponents, but every step still lands on one of them.
 _STEPS_OF_SOURCE = {CallSource.KAMICHA: -1, CallSource.TOIMEN: 2, CallSource.SHIMOCHA: 1}
-#: Honba a single non-winner pays: two shares in sanma, three in yonma.
-_HONBA_SHARE = 100
 #: Kans that, spread across seats, abort the round.
 _KAN_CAP = 4
 
@@ -226,7 +224,7 @@ def _value_from_deltas(deltas: tuple[int, ...], winner: int, *, honba: int, rule
     """
     if not deltas:
         return None
-    honba_total = (rules.player_count - 1) * _HONBA_SHARE * honba
+    honba_total = rules.honba_per_counter * honba
     return deltas[winner] - sum(deltas) - honba_total
 
 

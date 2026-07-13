@@ -84,7 +84,6 @@ _DAISANGEN_DRAGONS = 3
 _DAISUUSHI_WINDS = 4
 _MANGAN_BASE = 2000
 _DEALER_SHARE = 2
-_HONBA_DIVISOR = 3
 
 
 class IllegalActionError(ValueError):
@@ -574,7 +573,7 @@ def _resolve_ron(state: GameState, claim: _RonClaim, ron_seats: list[int], emit:
     ordered = sorted(ron_seats, key=lambda seat: (seat - claim.from_seat) % state.player_count)
     if len(ordered) == _DOUBLE_RON and not state.rules.multiple_ron:
         ordered = ordered[:1]
-    _accept_pending_riichi(state, emit)
+    state.pending_riichi = None  # a ronned riichi discard never completes; its deposit stays unpaid
     records = [_score_ron(state, seat, claim, first=index == 0) for index, seat in enumerate(ordered)]
     _apply_wins(state, records, emit)
     winners = tuple(record.seat for record in records)
@@ -651,7 +650,7 @@ def _score_one_win(state: GameState, record: _WinRecord, deltas: list[int]) -> N
 def _tsumo_deltas(state: GameState, record: _WinRecord, deltas: list[int], pao: Liability | None) -> None:
     """Distribute a tsumo's payments across the payers (or the liable player)."""
     payment = record.result.payment
-    honba_each = state.rules.honba_value // _HONBA_DIVISOR * state.honba
+    honba_each = state.rules.honba_value * state.honba
     gains = 0
     for seat in range(state.player_count):
         if seat == record.seat:
@@ -666,14 +665,16 @@ def _tsumo_deltas(state: GameState, record: _WinRecord, deltas: list[int], pao: 
 def _ron_deltas(state: GameState, record: _WinRecord, deltas: list[int], pao: Liability | None) -> None:
     """Distribute a ron's payment, splitting the base under liability."""
     payment = record.result.payment
-    honba_total = state.rules.honba_value * state.honba if record.collects_pot else 0
+    honba_total = state.rules.honba_per_counter * state.honba if record.collects_pot else 0
     deltas[record.seat] += payment.ron + honba_total
     if pao is None:
         deltas[record.from_seat] -= payment.ron + honba_total  # type: ignore[index]
         return
     liable_share = payment.ron // 2
+    honba_payer = pao.payer if state.rules.pao_honba_to_liable else record.from_seat
     deltas[pao.payer] -= liable_share
-    deltas[record.from_seat] -= payment.ron - liable_share + honba_total  # type: ignore[index]
+    deltas[record.from_seat] -= payment.ron - liable_share  # type: ignore[index]
+    deltas[honba_payer] -= honba_total  # type: ignore[index]
 
 
 # --- Liability ----------------------------------------------------------------

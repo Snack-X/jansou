@@ -240,6 +240,31 @@ class TestRiichi:
         assert rec.events.index(accepted[0]) < rec.events.index(rec.of(Call)[0])
         assert state.players[0].is_riichi  # an uninterrupted first discard makes it a double riichi
 
+    def test_ronned_riichi_discard_pays_no_deposit(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.M1))
+        state = flow_state(["234m345m567p234s8s", "1m234p345p567p234s", _JUNK, _JUNK], sequence=seq)
+        state.players[1].riichi = True
+        rec = Recorder()
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF:
+                riichi = next((a for a in actions if isinstance(a, Riichi) and a.tsumogiri), None)
+                if riichi is not None:
+                    return riichi
+            if seat == 1 and kind is DecisionKind.DISCARD_REACTION and any(isinstance(a, Ron) for a in actions):
+                return Ron()
+            return just_discard(seat, kind, actions)
+
+        outcome = play_deal(state, decide, rec)
+        assert outcome.winners == (1,)
+        # The ronned declaration never completes: no banking, no deposit in the pot.
+        assert not rec.of(RiichiAccepted)
+        assert not state.players[0].is_riichi
+        assert state.deposit_pool == 0
+        change = rec.of(ScoreChange)[0]
+        assert sum(change.deltas) == 0
+        assert state.scores[0] == 25_000 + change.deltas[0]  # the declarer pays only the ron
+
 
 class TestCalls:
     def test_pon_redirects_the_turn(self) -> None:
@@ -457,6 +482,36 @@ class TestSanma:
         outcome = play_deal(state, decide, rec)
         assert outcome.winners == (1,)
 
+    def test_honba_ron_moves_two_shares_per_counter(self) -> None:
+        def ron_deltas(honba: int) -> tuple[int, int]:
+            seq = sequence_with(i14=Tile(TileKind.S8))
+            seq = tuple(full_tile_set(3, aka_dora=False)[:14]) + seq[14:]
+            state = flow_state(
+                [_JUNK, "123p456p789p234s8s", _JUNK],
+                sequence=seq,
+                player_count=3,
+                rules=Rules(player_count=3),
+                honba=honba,
+            )
+            state.players[1].riichi = True
+
+            def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+                if kind is DecisionKind.DISCARD_REACTION and any(isinstance(a, Ron) for a in actions):
+                    return Ron()
+                return just_discard(seat, kind, actions)
+
+            rec = Recorder()
+            outcome = play_deal(state, decide, rec)
+            assert outcome.winners == (1,)
+            change = rec.of(ScoreChange)[0]
+            return change.deltas[1], change.deltas[0]
+
+        plain_gain, plain_paid = ron_deltas(0)
+        honba_gain, honba_paid = ron_deltas(2)
+        # Each counter moves two 100-point shares in sanma, both paid by the discarder.
+        assert honba_gain - plain_gain == 400
+        assert plain_paid - honba_paid == 400
+
 
 class TestAborts:
     def test_nine_terminals(self) -> None:
@@ -644,6 +699,23 @@ class TestPao:
         assert deltas[1] < 0  # the discarder pays half
         assert deltas[2] < 0  # the liable pays half
         assert deltas[0] == 32000
+
+    def test_pao_ron_honba_follows_the_ruleset(self) -> None:
+        hand = Hand(tuple(parse_mpsz("555z666z777z789s11p")))
+        winning = parse_mpsz("7s")[0]
+
+        def deltas_for(rules: Rules) -> list[int]:
+            result = score(hand, winning, WinContext(rules=rules, seat_wind=Wind.SOUTH, honba=2))
+            state = flow_state([_JUNK, _JUNK, _JUNK, _JUNK], rules=rules, honba=2)
+            state.liabilities = [Liability(beneficiary=0, payer=2, shape=Yaku.DAISANGEN)]
+            record = _WinRecord(seat=0, from_seat=1, tile=winning, result=result)
+            deltas = [0, 0, 0, 0]
+            _score_one_win(state, record, deltas)
+            return deltas
+
+        # Tenhou and M.League give the honba to the liable player; renmei to the discarder.
+        assert deltas_for(Rules()) == [32600, -16000, -16600, 0]
+        assert deltas_for(Rules(pao_honba_to_liable=False)) == [32600, -16600, -16000, 0]
 
 
 def _dragon_pon(kind: TileKind) -> Meld:

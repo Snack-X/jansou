@@ -19,7 +19,8 @@ class TestDefaults:
         assert rules.game_length is Wind.SOUTH
         assert rules.sudden_death_target == 30_000
         # Rule-flag spot checks.
-        assert rules.honba_value == 300
+        assert rules.honba_value == 100
+        assert rules.honba_per_counter == 300  # one 100-point share per non-winner
         assert rules.double_wind_fu == 4
         assert not rules.kiriage_mangan
         assert rules.kazoe_yakuman
@@ -62,7 +63,7 @@ class TestValidation:
 
     def test_rejects_bad_flag_values(self) -> None:
         with pytest.raises(ValueError, match="honba"):
-            Rules(honba_value=100)
+            Rules(honba_value=300)
         with pytest.raises(ValueError, match="double-wind"):
             Rules(double_wind_fu=3)
         with pytest.raises(ValueError, match="penalty pool"):
@@ -81,6 +82,7 @@ class TestPresets:
 
     def test_association_base_via_renmei(self) -> None:
         rules = preset("renmei")
+        assert not rules.pao_honba_to_liable  # JPML: the discarder pays the honba on a liable ron
         # Association base differences.
         assert rules.starting_points == 30_000
         assert rules.double_wind_fu == 2

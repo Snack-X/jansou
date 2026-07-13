@@ -33,8 +33,6 @@ from jansou.io.tiles import tile_from_tenhou, tile_to_tenhou
 
 _TSUMOGIRI = 60
 _CALLED_AWAY = 0
-#: Honba a single non-winner pays: two shares in sanma, three in yonma.
-_HONBA_SHARE = 100
 _VIEWER_PREFIX = "https://tenhou.net/6/#json="
 _VIEWER_SUFFIX = "&ts=0"
 _INFO, _SCORES, _DORA, _URA = 0, 1, 2, 3
@@ -367,7 +365,7 @@ def _value_from_deltas(deltas: tuple[int, ...], winner: int, honba: int, rules: 
     """
     if not deltas:
         return None
-    honba_total = (rules.player_count - 1) * _HONBA_SHARE * honba
+    honba_total = rules.honba_per_counter * honba
     return deltas[winner] - sum(deltas) - honba_total
 
 

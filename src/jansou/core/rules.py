@@ -11,7 +11,7 @@ from jansou.core.tiles import Wind
 RIICHI_DEPOSIT = 1000
 
 _PLAYER_COUNTS = (3, 4)
-_HONBA_VALUES = (0, 300)
+_HONBA_VALUES = (0, 100)
 _DOUBLE_WIND_FU_VALUES = (2, 4)
 _NOTEN_POOL_VALUES = (0, 3000)
 
@@ -29,7 +29,8 @@ class Rules:
         starting_points: The points each player starts with.
         game_length: The wind the game runs to (east-only or south).
         sudden_death_target: The points a leader needs to end sudden death.
-        honba_value: The points a counter (honba) adds to a win, 0 or 300.
+        honba_value: The points each non-winner pays per counter (honba),
+            0 or 100.
         double_wind_fu: The fu for a pair of the seat-and-round wind, 2 or 4.
         kiriage_mangan: Whether near-mangan scores round up to mangan.
         kazoe_yakuman: Whether a hand of thirteen or more han scores a yakuman.
@@ -72,6 +73,8 @@ class Rules:
         pao_daisuushi: Whether the big-four-winds feeder shares liability.
         pao_suukantsu: Whether the four-kan feeder shares liability.
         pao_daiminkan: Whether the open-kan feeder is liable for a rinshan win.
+        pao_honba_to_liable: Whether the liable player pays the honba on a
+            liable ron; the discarder pays it otherwise.
         allow_negative_scores: Whether play continues once a player is below zero.
         agari_yame: Whether a leading dealer may end the game on a win.
         sudden_death: Whether a tied or below-target game goes to overtime.
@@ -86,7 +89,7 @@ class Rules:
     sudden_death_target: int = 30_000
 
     # Score options.
-    honba_value: int = 300
+    honba_value: int = 100
     double_wind_fu: int = 4
     kiriage_mangan: bool = False
     kazoe_yakuman: bool = True
@@ -136,6 +139,7 @@ class Rules:
     pao_daisuushi: bool = True
     pao_suukantsu: bool = False
     pao_daiminkan: bool = False
+    pao_honba_to_liable: bool = True
 
     # Game-end options.
     allow_negative_scores: bool = True
@@ -156,7 +160,7 @@ class Rules:
         if self.nuki_dora and self.player_count != 3:
             raise ValueError("nuki dora requires the three-player game")
         if self.honba_value not in _HONBA_VALUES:
-            raise ValueError(f"honba value must be 0 or 300, got {self.honba_value}")
+            raise ValueError(f"honba value must be 0 or 100, got {self.honba_value}")
         if self.double_wind_fu not in _DOUBLE_WIND_FU_VALUES:
             raise ValueError(f"double-wind pair fu must be 2 or 4, got {self.double_wind_fu}")
         if self.noten_penalty_pool not in _NOTEN_POOL_VALUES:
@@ -166,6 +170,11 @@ class Rules:
     def is_sanma(self) -> bool:
         """Whether this is the three-player game."""
         return self.player_count == 3
+
+    @property
+    def honba_per_counter(self) -> int:
+        """The points one counter adds to a win: one share per non-winner."""
+        return (self.player_count - 1) * self.honba_value
 
 
 #: The default baseline: every flag at its default.
@@ -231,6 +240,7 @@ PRESETS: MappingProxyType[str, Rules] = MappingProxyType(
             kan_dora=False,
             ippatsu=False,
             pao_suukantsu=True,
+            pao_honba_to_liable=False,
         ),
         "saikouisen": replace(
             _ASSOCIATION_BASE,

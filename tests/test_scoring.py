@@ -114,6 +114,12 @@ class TestSanma:
         result = score_hand("555z666z777z789s11p", "7s", rules=rules, seat_wind=Wind.SOUTH, is_tsumo=True, honba=1)
         assert result.payment.honba == 200  # two payers, 100 each
 
+    def test_honba_on_ron_two_shares(self) -> None:
+        rules = Rules(player_count=3)
+        result = score_hand("555z666z777z789s11p", "7s", rules=rules, seat_wind=Wind.SOUTH, honba=2)
+        assert result.payment.honba == 400  # two non-winner shares per counter, all from the discarder
+        assert result.payment.total == 32400
+
 
 class TestYakuman:
     def test_kokushi_single(self) -> None:
