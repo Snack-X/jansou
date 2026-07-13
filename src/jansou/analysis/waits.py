@@ -7,6 +7,7 @@ completes the hand -- and are a question of shape alone.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from jansou.analysis.decompose import is_complete
@@ -16,6 +17,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from jansou.core.hand import Hand, Meld
+
+#: Distinct (hand, melds) shapes the wait cache holds before evicting.
+_CACHE_SIZE = 65536
 
 
 def _meld_counts(melds: tuple[Meld, ...]) -> list[int]:
@@ -31,6 +35,9 @@ def waits_counts(concealed: list[int], melds: tuple[Meld, ...], *, player_count:
     exceptionally, for a ready hand every completing kind of which it already
     holds in full (karaten).
 
+    The answer is memoized: a hand's waits are asked for at every opponent
+    discard while the hand itself changes only on its own turn.
+
     Args:
         concealed: Concealed tile counts indexed by kind.
         melds: The called melds the hand holds.
@@ -39,17 +46,24 @@ def waits_counts(concealed: list[int], melds: tuple[Meld, ...], *, player_count:
     Returns:
         The kinds that complete the hand; empty when it is not ready or is karaten.
     """
+    return set(_cached_waits(tuple(concealed), melds, player_count))
+
+
+@lru_cache(maxsize=_CACHE_SIZE)
+def _cached_waits(concealed: tuple[int, ...], melds: tuple[Meld, ...], player_count: int) -> frozenset[TileKind]:
+    """The wait set of one hand shape, computed once per cache entry."""
+    counts = list(concealed)
     num_melds = len(melds)
     meld_counts = _meld_counts(melds)
     result: set[TileKind] = set()
     for kind in kinds_in_play(player_count):
-        if concealed[kind] + meld_counts[kind] >= TILES_PER_KIND:
+        if counts[kind] + meld_counts[kind] >= TILES_PER_KIND:
             continue
-        concealed[kind] += 1
-        if is_complete(concealed, num_melds):
+        counts[kind] += 1
+        if is_complete(counts, num_melds):
             result.add(kind)
-        concealed[kind] -= 1
-    return result
+        counts[kind] -= 1
+    return frozenset(result)
 
 
 def waits(hand: Hand, *, player_count: int = 4) -> set[TileKind]:

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from jansou.analysis.shanten import shanten
-from jansou.analysis.waits import completes, waits
+from jansou.analysis.waits import completes, waits, waits_counts
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
-from jansou.core.tiles import SANMA_REMOVED_KINDS, YAOCHUU_KINDS, Tile, TileKind
+from jansou.core.tiles import SANMA_REMOVED_KINDS, YAOCHUU_KINDS, Tile, TileKind, counts_by_kind
 
 
 def kinds(mpsz: str) -> set[TileKind]:
@@ -54,6 +54,16 @@ class TestWinningTileValidation:
         assert completes(concealed, (), Tile(TileKind.M2))
         assert completes(concealed, (), Tile(TileKind.M5, red=True))  # red marking irrelevant
         assert not completes(concealed, (), Tile(TileKind.M3))
+
+
+class TestMemoization:
+    def test_repeated_calls_return_equal_but_independent_sets(self) -> None:
+        # The wait set is cached per hand shape; a caller mutating its copy
+        # must not poison the next caller's answer.
+        counts = counts_by_kind(parse_mpsz("34555m567p789s22s"))
+        first = waits_counts(list(counts), ())
+        first.clear()
+        assert waits_counts(list(counts), ()) == kinds("25m2s")
 
 
 class TestSanma:
