@@ -7,6 +7,9 @@ from types import MappingProxyType
 
 from jansou.core.tiles import Wind
 
+#: The points one riichi declaration deposits on the table.
+RIICHI_DEPOSIT = 1000
+
 _PLAYER_COUNTS = (3, 4)
 _HONBA_VALUES = (0, 300)
 _DOUBLE_WIND_FU_VALUES = (2, 4)

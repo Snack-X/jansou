@@ -18,7 +18,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from jansou.core.hand import MeldType
+from jansou.core.hand import FULL_HAND_SIZE, MeldType
+from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.core.tiles import Tile, full_tile_set
 from jansou.game.actions import (
     Action,
@@ -65,15 +66,12 @@ if TYPE_CHECKING:
     from jansou.game.flow import DecisionPoint
     from jansou.io.paifu import Event, Paifu, RoundLog
 
-_RIICHI_DEPOSIT = 1000
-
 #: The wall's documented dead-wall mapping: replacement draws sit at s1..s4,
 #: dora indicators at s5, s7, s9, s11, s13, and ura indicators beneath them.
 _DEAD_WALL_REPLACEMENTS = 4
 _DORA_SLOTS = (4, 6, 8, 10, 12)
 _URA_SLOTS = (5, 7, 9, 11, 13)
 _DEAL_PATTERN = (4, 4, 4, 1)
-_DEAL_SIZE = 13
 
 #: The record kinds the formats use for the two aborts a decision reproduces.
 _NINE_TERMINALS_KINDS = frozenset({"yao9", "nine_terminals", "kyushukyuhai"})
@@ -180,7 +178,7 @@ def _replay_round(
         round_number=round_log.dealer + 1,
         honba=round_log.honba,
     )
-    state = new_deal(rules, wall, position, list(round_log.scores), round_log.riichi_sticks * _RIICHI_DEPOSIT)
+    state = new_deal(rules, wall, position, list(round_log.scores), round_log.riichi_sticks * RIICHI_DEPOSIT)
     script = _Script(round_log, round_index)
     pending: list[GameEvent] = []
 
@@ -237,7 +235,7 @@ class _WallBuilder:
 
     def _place_deal(self) -> None:
         """Lay the dealt hands over the live wall's front in the deal pattern."""
-        if any(len(hand) != _DEAL_SIZE for hand in self._round.hands):
+        if any(len(hand) != FULL_HAND_SIZE for hand in self._round.hands):
             raise ReplayError("a dealt hand does not hold thirteen tiles", self._round_index)
         cursor = DEAD_WALL_SIZE
         taken = [0] * len(self._round.hands)
@@ -267,7 +265,7 @@ class _WallBuilder:
 
     def _place_draws(self) -> None:
         """Pin every recorded draw: live ones in order, replacements to the dead wall."""
-        live = DEAD_WALL_SIZE + _DEAL_SIZE * len(self._round.hands)
+        live = DEAD_WALL_SIZE + FULL_HAND_SIZE * len(self._round.hands)
         replacements = 0
         replacement_pending = False
         for event_index, event in enumerate(self._round.events):

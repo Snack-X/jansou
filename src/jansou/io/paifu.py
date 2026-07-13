@@ -15,15 +15,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from jansou.core.hand import Hand, Meld, MeldType
+from jansou.core.hand import FULL_HAND_SIZE, Hand, Meld, MeldType
 from jansou.core.tiles import Tile, TileKind, Wind
+from jansou.game.wall import DEAD_WALL_SIZE
 from jansou.scoring.context import WinContext
 
 if TYPE_CHECKING:
     from jansou.core.rules import Rules
-
-_DEAD_WALL = 14
-_STARTING_CONCEALED = 13
 
 
 # --- Normalized events ------------------------------------------------------
@@ -262,7 +260,7 @@ class _Situation:
 
 def _blank_situation(player_count: int, initial_dora: Tile) -> _Situation:
     """The situation at the start of a round, before any event."""
-    live = (136 if player_count == 4 else 108) - _DEAD_WALL - _STARTING_CONCEALED * player_count
+    live = (136 if player_count == 4 else 108) - DEAD_WALL_SIZE - FULL_HAND_SIZE * player_count
     return _Situation(
         player_count=player_count,
         live_remaining=live,

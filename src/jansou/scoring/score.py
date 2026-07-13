@@ -13,6 +13,7 @@ from enum import Enum, auto, unique
 from typing import TYPE_CHECKING
 
 from jansou.analysis.decompose import decompose
+from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.scoring.fu import FuBreakdown, compute_fu
 from jansou.scoring.yaku import (
     CATALOG_ORDER,
@@ -44,7 +45,6 @@ _NON_DEALER_RON_MULT = 4
 _DEALER_SHARE_MULT = 2
 _NON_DEALER_SHARE_MULT = 1
 _HONBA_DIVISOR = 3
-_STICK_VALUE = 1000
 
 
 class ScoringError(ValueError):
@@ -195,7 +195,7 @@ def _payment(base: int, context: WinContext) -> Payment:
         base_total = ron
         # The discarder pays the whole honba: one share per non-winner (two in sanma).
         honba_total = (rules.player_count - 1) * (rules.honba_value // _HONBA_DIVISOR) * context.honba
-    sticks = context.riichi_sticks * _STICK_VALUE
+    sticks = context.riichi_sticks * RIICHI_DEPOSIT
     return Payment(ron, tsumo_dealer, tsumo_non_dealer, honba_total, sticks, base_total + honba_total + sticks)
 
 

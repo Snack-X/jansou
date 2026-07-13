@@ -24,9 +24,6 @@ if TYPE_CHECKING:
 #: Tiles set aside as the dead wall, ahead of the live wall.
 DEAD_WALL_SIZE = 14
 
-#: Concealed tiles dealt to each player before the first turn.
-DEAL_SIZE = 13
-
 #: The 0-based dead-wall slots for the dora and ura indicators.
 _DORA_SLOTS = (4, 6, 8, 10, 12)
 _URA_SLOTS = (5, 7, 9, 11, 13)

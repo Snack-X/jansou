@@ -21,6 +21,7 @@ from enum import Enum, auto, unique
 from typing import TYPE_CHECKING
 
 from jansou.core.hand import Hand, Meld, MeldType
+from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.core.tiles import Tile, TileKind
 from jansou.game.actions import (
     Action,
@@ -76,7 +77,6 @@ if TYPE_CHECKING:
 Decide = Callable[[int, "DecisionKind", list[Action]], Action]
 Emit = Callable[[Event], None]
 
-_RIICHI_DEPOSIT = 1000
 _KAN_CAP = 4
 _TRIPLE_RON = 3
 _DOUBLE_RON = 2
@@ -744,8 +744,8 @@ def _accept_pending_riichi(state: GameState, emit: Emit) -> None:
     else:
         player.riichi = True
     player.ippatsu = state.rules.ippatsu
-    state.scores[seat] -= _RIICHI_DEPOSIT
-    state.deposit_pool += _RIICHI_DEPOSIT
+    state.scores[seat] -= RIICHI_DEPOSIT
+    state.deposit_pool += RIICHI_DEPOSIT
     state.riichi_declarations += 1
     emit(RiichiAccepted(seat))
 

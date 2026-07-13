@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import cache
 from typing import TYPE_CHECKING
 
+from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS
 from jansou.core.tiles import YAOCHUU_KINDS, counts_by_kind
 
 if TYPE_CHECKING:
@@ -18,9 +19,8 @@ if TYPE_CHECKING:
 
 _PAIR_SIZE = 2
 _SET_SIZE = 3
-_MAX_SETS = 4
 _SUIT_RANKS = 9
-_FULL_CONCEALED = (13, 14)
+_FULL_CONCEALED = (FULL_HAND_SIZE, FULL_HAND_SIZE + 1)
 _STANDARD_EMPTY = 8  # 2 * four sets, minus the head; the ceiling before any block is found
 _CHIITOI_TARGET_PAIRS = 6  # six pairs plus a spare of a seventh kind is ready
 _CHIITOI_DISTINCT = 7
@@ -108,7 +108,7 @@ def _standard(counts: list[int], num_melds: int) -> int:
     best = _STANDARD_EMPTY
     for sets, partials, head in states:
         total_sets = sets + num_melds
-        usable = min(partials, _MAX_SETS - total_sets)
+        usable = min(partials, MAX_MELDS - total_sets)
         best = min(best, _STANDARD_EMPTY - 2 * total_sets - usable - head)
     return best
 

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum, auto, unique
 from typing import TYPE_CHECKING
 
-from jansou.core.hand import MeldType
+from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS, MeldType
 from jansou.core.tiles import NUM_KINDS, YAOCHUU_KINDS, Tile, TileKind, counts_by_kind
 
 if TYPE_CHECKING:
@@ -23,8 +23,7 @@ if TYPE_CHECKING:
 
 _PAIR_SIZE = 2
 _SET_SIZE = 3
-_MAX_SETS = 4
-_COMPLETE_SIZE = 14  # tiles in a complete concealed hand with no melds
+_COMPLETE_SIZE = FULL_HAND_SIZE + 1  # tiles in a complete concealed hand with no melds
 _CHIITOI_PAIRS = 7
 _SUITED_KINDS = 27
 _LAST_RUN_START = 6  # a run may start at ranks 1-7, i.e. index i with i % 9 <= 6
@@ -211,7 +210,7 @@ def is_complete(counts: list[int], num_melds: int, *, allow_special: bool | None
     """
     total = sum(counts)
     special = (num_melds == 0) if allow_special is None else allow_special
-    if total == (_MAX_SETS - num_melds) * _SET_SIZE + _PAIR_SIZE and _standard_complete(counts, _MAX_SETS - num_melds):
+    if total == (MAX_MELDS - num_melds) * _SET_SIZE + _PAIR_SIZE and _standard_complete(counts, MAX_MELDS - num_melds):
         return True
     return bool(special and total == _COMPLETE_SIZE and (_chiitoi_complete(counts) or _kokushi_complete(counts)))
 
@@ -254,7 +253,7 @@ def _run_wait(run_kinds: tuple[TileKind, ...], won: TileKind) -> WaitShape:
 
 def _standard_decompositions(counts: list[int], melds: tuple[Meld, ...], winning: Tile) -> list[Decomposition]:
     """Every standard-shape reading of the concealed counts around the melds."""
-    need_sets = _MAX_SETS - len(melds)
+    need_sets = MAX_MELDS - len(melds)
     if sum(counts) != need_sets * _SET_SIZE + _PAIR_SIZE:
         return []
     meld_groups = tuple(_meld_group(meld) for meld in melds)

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from jansou.analysis.shanten import shanten_counts
 from jansou.analysis.waits import waits_counts
 from jansou.core.hand import Hand, Meld, MeldType
+from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.core.tiles import Tile, TileKind, counts_by_kind, suited_kind
 from jansou.scoring.context import WinContext
 from jansou.scoring.score import ScoringError, score
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
     from jansou.game.state import GameState, PlayerState
     from jansou.scoring.score import ScoreResult
 
-_RIICHI_DEPOSIT = 1000
 _KAN_CAP = 4
 _KYUUSHU_MIN = 9
 _PON_SIZE = 2
@@ -175,7 +175,7 @@ def win_context(
         ura_indicators=state.wall.ura_indicators,
         nuki_count=player.nuki_count,
         honba=state.honba,
-        riichi_sticks=state.deposit_pool // _RIICHI_DEPOSIT,
+        riichi_sticks=state.deposit_pool // RIICHI_DEPOSIT,
     )
 
 
@@ -392,7 +392,7 @@ def _riichi_options(state: GameState, seat: int) -> list[Action]:
     """Riichi declarations for each discard that leaves the hand ready."""
     player = state.players[seat]
     rules = state.rules
-    if not player.is_concealed or player.is_riichi or state.scores[seat] < _RIICHI_DEPOSIT:
+    if not player.is_concealed or player.is_riichi or state.scores[seat] < RIICHI_DEPOSIT:
         return []
     remaining = state.wall.live_draws_remaining
     # Riichi is never allowed on the final discard (houtei).
