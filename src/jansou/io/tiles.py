@@ -33,7 +33,12 @@ def tile_from_136(index: int) -> Tile:
     """
     if not 0 <= index < _SLOTS_PER_KIND * len(TileKind):
         raise ValueError(f"136-tile index must be in 0-135, got {index}")
-    return Tile(TileKind(index // _SLOTS_PER_KIND), red=index in RED_136)
+    return _TILES_136[index]
+
+
+_TILES_136 = tuple(
+    Tile(TileKind(index // _SLOTS_PER_KIND), red=index in RED_136) for index in range(_SLOTS_PER_KIND * len(TileKind))
+)
 
 
 #: The 136-tile red-five index of each red-carrying kind, by its kind value.

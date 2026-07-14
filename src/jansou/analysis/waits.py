@@ -11,6 +11,8 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from jansou.analysis.decompose import is_complete
+from jansou.analysis.shanten import shanten_counts
+from jansou.core.hand import FULL_HAND_SIZE
 from jansou.core.tiles import TILES_PER_KIND, Tile, TileKind, counts_by_kind, kinds_in_play
 
 if TYPE_CHECKING:
@@ -20,6 +22,8 @@ if TYPE_CHECKING:
 
 #: Distinct (hand, melds) shapes the wait cache holds before evicting.
 _CACHE_SIZE = 65536
+
+_SET_SIZE = 3
 
 
 def _meld_counts(melds: tuple[Meld, ...]) -> list[int]:
@@ -54,6 +58,10 @@ def _cached_waits(concealed: tuple[int, ...], melds: tuple[Meld, ...], player_co
     """The wait set of one hand shape, computed once per cache entry."""
     counts = list(concealed)
     num_melds = len(melds)
+    # Only a ready hand has waits: one shanten pass replaces the per-kind
+    # completion probes for the common non-tenpai shape.
+    if sum(counts) == FULL_HAND_SIZE - _SET_SIZE * num_melds and shanten_counts(counts, num_melds) != 0:
+        return frozenset()
     meld_counts = _meld_counts(melds)
     result: set[TileKind] = set()
     for kind in kinds_in_play(player_count):

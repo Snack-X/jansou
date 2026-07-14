@@ -33,6 +33,11 @@ class TestWaitEnumeration:
         assert shanten(hand) > 0
         assert waits(hand) == set()
 
+    def test_holding_size_hand_has_no_waits(self) -> None:
+        # Waits are a ready-size question; a holding-size shape has none.
+        counts = counts_by_kind(parse_mpsz("123m456m789m234p55s"))
+        assert waits_counts(list(counts), ()) == set()
+
     def test_called_hand_waits(self) -> None:
         chii = Meld(MeldType.CHII, tuple(parse_mpsz("123m")), called=Tile(TileKind.M1), source=CallSource.KAMICHA)
         hand = Hand(tuple(parse_mpsz("456m789m234p5p")), (chii,))

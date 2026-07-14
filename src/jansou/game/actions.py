@@ -307,9 +307,10 @@ def self_actions(state: GameState, *, rinshan: bool = False) -> list[Action]:
         return _discards(state, seat)
     drawn = player.drawn
     actions: list[Action] = []
-    tsumo_context = win_context(state, seat, is_tsumo=True, rinshan=rinshan)
-    if win_result(state, seat, drawn, tsumo_context) is not None:
-        actions.append(Tsumo())
+    if drawn.kind in current_waits(state, seat):
+        tsumo_context = win_context(state, seat, is_tsumo=True, rinshan=rinshan)
+        if win_result(state, seat, drawn, tsumo_context) is not None:
+            actions.append(Tsumo())
     if player.is_riichi:
         actions.extend(_riichi_locked_options(state, seat, drawn))
     else:
@@ -399,6 +400,8 @@ def _riichi_options(state: GameState, seat: int) -> list[Action]:
     if remaining == 0 or (remaining < state.player_count and not rules.riichi_without_draw):
         return []
     # The self menu follows a draw, so the drawn tile is always present here.
+    if not rules.riichi_without_tenpai and shanten_counts(counts_by_kind(_hand_tiles(player)), len(player.melds)) > 0:
+        return []
     candidates: list[Action] = [Riichi(tile) for tile in _distinct_by_red(player.concealed)]
     candidates.append(Riichi(player.drawn, tsumogiri=True))  # type: ignore[arg-type]
     if not rules.riichi_without_tenpai:
@@ -463,9 +466,10 @@ def discard_reactions(state: GameState, seat: int, *, final: bool) -> list[Actio
     _, tile = _require_discard(state)
     player = state.players[seat]
     actions: list[Action] = []
-    ron_context = win_context(state, seat, is_tsumo=False)
-    if not is_furiten(state, seat) and win_result(state, seat, tile, ron_context) is not None:
-        actions.append(Ron())
+    if tile.kind in current_waits(state, seat) and not is_furiten(state, seat):
+        ron_context = win_context(state, seat, is_tsumo=False)
+        if win_result(state, seat, tile, ron_context) is not None:
+            actions.append(Ron())
     if not final and not player.is_riichi:
         actions.extend(_pon_options(state, seat, tile))
         actions.extend(_open_kan_option(state, seat, tile))
