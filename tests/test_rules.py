@@ -125,7 +125,6 @@ class TestPresets:
 
     def test_mahjong_soul(self) -> None:
         rules = preset("mahjong-soul")
-        assert rules.kiriage_mangan
         assert not rules.abort_sanchahou
         assert rules.kokushi_ankan_chankan
         assert rules.double_yakuman  # not Tenhou's override
@@ -182,7 +181,6 @@ class TestPresets:
 
     def test_mahjong_soul_3p_keeps_soul_overrides(self) -> None:
         rules = preset("mahjong-soul-3p")
-        assert rules.kiriage_mangan
         assert rules.kokushi_ankan_chankan
         assert not rules.abort_sanchahou
 

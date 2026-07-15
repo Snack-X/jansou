@@ -216,13 +216,8 @@ _NET_MAHJONG_BASE = replace(
 )
 
 _TENHOU = replace(_NET_MAHJONG_BASE, double_yakuman=False)
-
-_MAHJONG_SOUL = replace(
-    _NET_MAHJONG_BASE,
-    kiriage_mangan=True,
-    abort_sanchahou=False,
-    kokushi_ankan_chankan=True,
-)
+    
+_MAHJONG_SOUL = replace(_NET_MAHJONG_BASE, abort_sanchahou=False, kokushi_ankan_chankan=True)
 
 #: Setup parameters the three-player platform presets pin.
 _SANMA_SETUP = {
