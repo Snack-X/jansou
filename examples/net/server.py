@@ -15,10 +15,12 @@ synchronous loop: no concurrency, one blocking read per decision.
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import socket
 import sys
 import time
+from pathlib import Path
 
 from jansou.core.rules import PRESETS, Rules, preset
 from jansou.game.agents import (
@@ -33,6 +35,10 @@ from jansou.game.environment import (
     GameResult,
     IllegalActionError,
 )
+from jansou.io.from_game import paifu_from_game
+from jansou.io.mjai import dump_mjai
+from jansou.io.mjlog import dump_mjlog
+from jansou.io.tenhou_json import dump_tenhou_json
 
 from protocol import (
     ProtocolError,
@@ -53,6 +59,16 @@ FILL_AGENTS = {
     "simple": lambda seed: SimpleAgent(),
     "efficiency": lambda seed: EfficiencyAgent(seed),
     "smart": lambda seed: SmartEfficiencyAgent(seed),
+}
+
+#: Paifu serializers for --save: format name to file extension and dumper.
+PAIFU_FORMATS = {
+    "mjai": (".mjson", dump_mjai),
+    "mjlog": (".mjlog", dump_mjlog),
+    "tenhou": (
+        ".json",
+        lambda paifu: json.dumps(dump_tenhou_json(paifu), ensure_ascii=False),
+    ),
 }
 
 
@@ -157,13 +173,23 @@ def accept_clients(host: str, port: int, count: int) -> list[RemoteSeat]:
     return clients
 
 
+def save_paifu(
+    env: Environment, directory: Path, save_format: str, stem: str
+) -> Path:
+    """Write the finished game's record into the directory, in the chosen format."""
+    extension, dump = PAIFU_FORMATS[save_format]
+    path = directory / f"{stem}{extension}"
+    path.write_text(dump(paifu_from_game(env)) + "\n", encoding="utf-8")
+    return path
+
+
 def play_game(
     rules: Rules,
     seats: list,
     seed: int | None,
     verbose: bool,
     display: LiveDisplay | None,
-) -> GameResult:
+) -> tuple[GameResult, Environment]:
     """Run one game, streaming masked events to every seat."""
     env = Environment(rules, seed=seed)
     names = tuple(seat.name for seat in seats)
@@ -185,7 +211,7 @@ def play_game(
         try:
             request = game.send(action)
         except StopIteration as stop:
-            return stop.value
+            return stop.value, env
 
 
 def play_session(
@@ -195,13 +221,16 @@ def play_session(
     seed: int | None,
     verbose: bool,
     display: LiveDisplay | None,
+    save_dir: Path | None = None,
+    save_format: str = "tenhou",
 ) -> None:
     """Play the games back to back and report per-game and final standings."""
     placements = [[] for _ in seats]
     final_scores = [[] for _ in seats]
+    session_stamp = time.strftime("%Y%m%d-%H%M%S")
     for game_index in range(games):
         game_seed = None if seed is None else seed + game_index
-        result = play_game(rules, seats, game_seed, verbose, display)
+        result, env = play_game(rules, seats, game_seed, verbose, display)
         for place, seat_index in enumerate(result.ranking):
             placements[seat_index].append(place + 1)
         for seat_index, score in enumerate(result.scores):
@@ -219,6 +248,10 @@ def play_session(
             f"{seats[s].name} {result.scores[s]}" for s in result.ranking
         )
         print(f"game {game_index + 1}/{games}: {standing}")
+        if save_dir is not None:
+            stem = f"{session_stamp}-game-{game_index + 1:03d}"
+            saved = save_paifu(env, save_dir, save_format, stem)
+            print(f"  paifu saved: {saved}")
         if display is not None:
             time.sleep(display.delay * LiveDisplay.OUTCOME_LINGER)
 
@@ -277,6 +310,19 @@ def main() -> int:
         help="rules preset (default: baseline)",
     )
     parser.add_argument(
+        "--save",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="save each game's paifu into this directory (created if missing)",
+    )
+    parser.add_argument(
+        "--save-format",
+        choices=sorted(PAIFU_FORMATS),
+        default="tenhou",
+        help="paifu format for --save (default: tenhou)",
+    )
+    parser.add_argument(
         "--verbose", action="store_true", help="print every event as it happens"
     )
     parser.add_argument(
@@ -297,6 +343,8 @@ def main() -> int:
         parser.error(
             f"--clients must be between 0 and {rules.player_count} for these rules"
         )
+    if args.save is not None:
+        args.save.mkdir(parents=True, exist_ok=True)
 
     seats: list = accept_clients(args.host, args.port, args.clients)
     for fill_index in range(rules.player_count - args.clients):
@@ -322,7 +370,16 @@ def main() -> int:
 
     display = LiveDisplay(args.delay) if args.display else None
     try:
-        play_session(rules, seats, args.games, args.seed, args.verbose, display)
+        play_session(
+            rules,
+            seats,
+            args.games,
+            args.seed,
+            args.verbose,
+            display,
+            args.save,
+            args.save_format,
+        )
     except (ProtocolError, IllegalActionError, ConnectionError, OSError) as error:
         print(f"session aborted: {error}", file=sys.stderr)
         return 1

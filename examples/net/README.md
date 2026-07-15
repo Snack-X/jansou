@@ -9,6 +9,16 @@
 uv run server.py
 ```
 
+### Saving paifu
+
+Pass `--save DIR` to the server to write each game's record into `DIR`,
+named `<session timestamp>-game-<n>`. `--save-format` picks the format:
+`tenhou` (Tenhou JSON, default), `mjai` (MJAI JSONL), or `mjlog` (Tenhou XML).
+
+```sh
+uv run server.py --save logs/ --save-format mjai
+```
+
 ## Protocol
 
 Newline-delimited JSON are sent over TCP. Every message is an object with a `"type"`.
