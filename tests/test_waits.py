@@ -46,9 +46,25 @@ class TestWaitEnumeration:
 
 
 class TestKaraten:
-    def test_empty_waits_when_all_copies_held(self) -> None:
-        # 1111p held: the tanki on 1p waits on a fifth copy that does not exist.
+    def test_four_copy_tanki_is_not_ready(self) -> None:
+        # 1111p held: the tanki on 1p waits on a fifth copy that does not
+        # exist, so the hand is not ready at all — and has no waits.
         hand = Hand(tuple(parse_mpsz("123m456m789m1111p")))
+        assert shanten(hand) == 1
+        assert waits(hand) == set()
+
+    def test_exhausted_kind_is_dropped_from_the_waits(self) -> None:
+        # All four 2m concealed: only the live tanki is a wait, and a fifth
+        # 2m (which would complete on paper) is never probed.
+        hand = Hand(tuple(parse_mpsz("2222m34m567p789s5s")))
+        assert shanten(hand) == 0
+        assert waits(hand) == {TileKind.S5}
+
+    def test_empty_waits_when_own_kans_hold_all_copies(self) -> None:
+        # Closed kans exhaust both sides of the ryanmen: shanten cannot see
+        # meld-held copies, so the hand is ready yet waits on nothing.
+        kans = tuple(Meld(MeldType.ANKAN, tuple(parse_mpsz(tiles))) for tiles in ("2222s", "5555s"))
+        hand = Hand(tuple(parse_mpsz("34s111z88p")), kans)
         assert shanten(hand) == 0  # ready by shape
         assert waits(hand) == set()  # yet karaten
 

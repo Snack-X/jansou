@@ -7,7 +7,7 @@ import random
 import pytest
 
 from jansou.analysis.decompose import is_complete
-from jansou.analysis.shanten import _block_options, discard_shantens, draw_shantens, is_tenpai, shanten, shanten_counts
+from jansou.analysis.shanten import discard_shantens, draw_shantens, is_tenpai, shanten, shanten_counts
 from jansou.analysis.shanten import is_complete as hand_complete
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
@@ -221,16 +221,45 @@ class TestAgainstBruteForce:
         assert checked > 100
 
 
+#: Every group as (kind, copies) pairs: the 34 triplets and the 21 runs.
+_GROUPS = tuple(((k, 3),) for k in range(NUM_KINDS)) + tuple(
+    ((base, 1), (base + 1, 1), (base + 2, 1)) for suit in range(3) for base in range(suit * 9, suit * 9 + 7)
+)
+
+
 def _reference_shanten_counts(c: list[int], num_melds: int) -> int:
-    """The pre-table algorithm, kept verbatim as the equivalence oracle."""
-    states = {(0, 0, 0)}
-    for start, stop in ((0, 9), (9, 18), (18, 27), (27, 34)):
-        options = _block_options(tuple(c[start:stop]), is_honor=start == 27)
-        states = {(s + bs, p + bp, h + bh) for s, p, h in states for bs, bp, bh in options if h + bh <= 1}
-    best = 8
-    for s, p, h in states:
-        total_sets = s + num_melds
-        best = min(best, 8 - 2 * total_sets - min(p, 4 - total_sets) - h)
+    """Shanten by direct enumeration of winning shapes, as the equivalence oracle.
+
+    Every multiset of groups plus a pair is tried, rejecting any shape that
+    would need a fifth copy of a kind; the cost of a shape is the number of
+    its tiles the hand does not hold, and shanten is the best cost minus one.
+    """
+    used = [0] * NUM_KINDS
+    best = _INF
+
+    def descend(start: int, remaining: int, cost: int) -> None:
+        nonlocal best
+        if cost >= best:
+            return
+        if remaining == 0:
+            for pair in range(NUM_KINDS):
+                if used[pair] + 2 <= TILES_PER_KIND:
+                    with_pair = cost - max(0, used[pair] - c[pair]) + max(0, used[pair] + 2 - c[pair])
+                    best = min(best, with_pair)
+            return
+        for index in range(start, len(_GROUPS)):
+            group = _GROUPS[index]
+            if all(used[k] + n <= TILES_PER_KIND for k, n in group):
+                added = 0
+                for k, n in group:
+                    added += max(0, used[k] + n - c[k]) - max(0, used[k] - c[k])
+                    used[k] += n
+                descend(index, remaining - 1, cost + added)
+                for k, n in group:
+                    used[k] -= n
+
+    descend(0, 4 - num_melds, 0)
+    best -= 1
     if num_melds == 0 and sum(c) in (13, 14):
         pairs = sum(1 for x in c if x >= 2)
         kinds = sum(1 for x in c if x)
@@ -267,12 +296,45 @@ def _random_hands(rng: random.Random, n: int) -> list[tuple[list[int], int]]:
     return hands
 
 
-class TestPackedEquivalence:
-    """The packed-table combination reproduces the original search, bit for bit."""
+class TestReferenceEquivalence:
+    """The vector combination reproduces a direct enumeration of winning shapes."""
 
     def test_matches_the_reference_on_random_hands(self) -> None:
-        for c, num_melds in _random_hands(random.Random(5), 4000):
+        for c, num_melds in _random_hands(random.Random(5), 800):
             assert shanten_counts(c, num_melds) == _reference_shanten_counts(c, num_melds), (c, num_melds)
+
+    def test_matches_the_reference_on_quad_heavy_hands(self) -> None:
+        rng = random.Random(8)
+        for _ in range(300):
+            num_melds = rng.randrange(5)
+            total = 13 - 3 * num_melds + rng.randrange(2)
+            c = [0] * NUM_KINDS
+            for k in rng.sample(range(NUM_KINDS), 3):
+                if sum(c) + TILES_PER_KIND <= total:
+                    c[k] = TILES_PER_KIND
+            pool = [k for k in range(NUM_KINDS) for _ in range(TILES_PER_KIND - c[k])]
+            for k in rng.sample(pool, total - sum(c)):
+                c[k] += 1
+            assert shanten_counts(c, num_melds) == _reference_shanten_counts(c, num_melds), (c, num_melds)
+
+
+class TestFourCopyLimit:
+    """Shapes whose completion needs a fifth copy of a kind do not count."""
+
+    @pytest.mark.parametrize(
+        ("mpsz", "num_melds", "expected"),
+        [
+            ("9999m", 3, 1),  # quad as set plus impossible tanki
+            ("1111m123456789s", 0, 1),  # the same at a full hand
+            ("111222333m5555p", 0, 1),  # three sets plus a fully held pair kind
+            ("99s55557777z", 1, 2),  # dead quads cannot seed the missing group
+            ("4s444455557777z", 0, 3),  # three dead quads leave one live floater
+        ],
+    )
+    def test_counts_only_drawable_completions(self, mpsz: str, num_melds: int, expected: int) -> None:
+        c = counts(mpsz)
+        assert shanten_counts(c, num_melds) == expected
+        assert brute_shanten(c, num_melds, cap=expected) == expected
 
 
 class TestDrawShantens:

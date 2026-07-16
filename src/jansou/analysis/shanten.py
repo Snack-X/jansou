@@ -4,15 +4,22 @@ Reported on a fixed convention: -1 complete (agari), 0 ready (tenpai), and a
 positive count otherwise. Three target shapes are measured -- the standard four
 groups and a pair, seven pairs, and thirteen orphans -- and a hand's shanten is
 the lowest of the ones that apply.
+
+The standard shape is measured as a replacement number: the fewest tiles drawn,
+each with a free discard, until the hand contains four groups and a pair, which
+is shanten plus one. Replacement honors the four-copy limit -- a shape that
+could only complete with a fifth copy of a kind is not counted, so a
+four-of-a-kind tanki is one shanten, not ready. Each block's counts key a
+lazily filled table of interned distance vectors, and blocks combine through a
+cached min-plus merge, so a warm query is a handful of table lookups.
 """
 
 from __future__ import annotations
 
-from functools import cache
 from typing import TYPE_CHECKING
 
 from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS
-from jansou.core.tiles import YAOCHUU_KINDS, counts_by_kind
+from jansou.core.tiles import TILES_PER_KIND, YAOCHUU_KINDS, counts_by_kind
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -24,169 +31,125 @@ _PAIR_SIZE = 2
 _SET_SIZE = 3
 _SUIT_RANKS = 9
 _FULL_CONCEALED = (FULL_HAND_SIZE, FULL_HAND_SIZE + 1)
-_STANDARD_EMPTY = 8  # 2 * four sets, minus the head; the ceiling before any block is found
+_UNREACHED = 99  # above any real distance; never survives a minimum
 _CHIITOI_TARGET_PAIRS = 6  # six pairs plus a spare of a seventh kind is ready
 _CHIITOI_DISTINCT = 7
 _KOKUSHI_KINDS = 13
 
-# The count vector split into blocks the standard search decomposes independently.
+# The count vector split into blocks the standard combination folds over.
 _BLOCKS = ((0, 9), (9, 18), (18, 27), (27, 34))
 
 
 def _legal_sizes(num_melds: int) -> tuple[int, int]:
     """The resting and holding concealed-tile counts for a hand with this many melds."""
-    rest = 13 - _SET_SIZE * num_melds
+    rest = FULL_HAND_SIZE - _SET_SIZE * num_melds
     return rest, rest + 1
 
 
-@cache
-def _block_options(block: tuple[int, ...], *, is_honor: bool) -> frozenset[tuple[int, int, int]]:
-    """The non-dominated (sets, partials, head) splits of one suit or the honors.
+def _distance_vector(block: tuple[int, ...], *, is_honor: bool) -> tuple[int, ...]:
+    """One block's distances: the fewest tiles added to contain each target.
 
-    Each option counts complete sets, partial groups (taatsu, including a pair
-    kept toward a triplet), and whether one pair is reserved as the head. Runs
-    are available only to a number suit. A rank's leftover tiles are simply not
-    used, so the search advances past an index rather than peeling floaters.
+    Entry ``pair * 5 + sets`` is the fewest tiles that must join the block so
+    it contains ``sets`` complete groups plus, when ``pair`` is one, a pair,
+    never using more than four tiles of a kind -- the constraint that keeps
+    every counted shape completable with tiles that exist. A dynamic program
+    walks the ranks carrying the runs in progress: entering an index,
+    ``due_now`` runs need a tile here only and ``due_next`` runs need one here
+    and one at the next rank.
     """
-    counts = list(block)
-    options: set[tuple[int, int, int]] = set()
-
-    def take(removed: tuple[int, ...], i: int, sets: int, partials: int, head: int) -> None:
-        for k in removed:
-            counts[k] -= 1
-        visit(i, sets, partials, head)
-        for k in removed:
-            counts[k] += 1
-
-    def visit(i: int, sets: int, partials: int, head: int) -> None:
-        if i >= len(counts):
-            options.add((sets, partials, head))
-            return
-        visit(i + 1, sets, partials, head)  # leave any tiles at i unused
-        if counts[i] >= _SET_SIZE:
-            take((i,) * _SET_SIZE, i, sets + 1, partials, head)
-        if counts[i] >= _PAIR_SIZE:
-            if not head:
-                take((i, i), i, sets, partials, 1)
-            take((i, i), i, sets, partials + 1, head)
-        for run, tiles in _suited_partials(counts, i, is_honor=is_honor):
-            take(tiles, i, sets + run, partials + (1 - run), head)
-
-    visit(0, 0, 0, 0)
-    return frozenset(_pareto(options))
+    costs = {(0, 0, 0, 0): 0}
+    for i, held in enumerate(block):
+        can_run = not is_honor and i <= len(block) - _SET_SIZE
+        next_costs: dict[tuple[int, int, int, int], int] = {}
+        for (sets, pair, due_now, due_next), cost in costs.items():
+            carried = due_now + due_next
+            for triplet in range(min(1, MAX_MELDS - sets, (TILES_PER_KIND - carried) // _SET_SIZE) + 1):
+                used_fixed = carried + _SET_SIZE * triplet
+                for head in range(min(1 - pair, (TILES_PER_KIND - used_fixed) // _PAIR_SIZE) + 1):
+                    used_base = used_fixed + _PAIR_SIZE * head
+                    max_runs = min(TILES_PER_KIND - used_base, MAX_MELDS - sets - triplet) if can_run else 0
+                    for runs in range(max_runs + 1):
+                        added = cost + max(0, used_base + runs - held)
+                        key = (sets + triplet + runs, pair + head, due_next, runs)
+                        if added < next_costs.get(key, _UNREACHED):
+                            next_costs[key] = added
+        costs = next_costs
+    vector = [_UNREACHED] * 10
+    for (sets, pair, _, _), cost in costs.items():
+        index = pair * 5 + sets
+        vector[index] = min(vector[index], cost)
+    return tuple(vector)
 
 
-def _suited_partials(counts: list[int], i: int, *, is_honor: bool) -> list[tuple[int, tuple[int, ...]]]:
-    """The run and run-partials startable at index i, each as (is_run, tiles)."""
-    if is_honor or not counts[i]:
-        return []
-    rank = i % _SUIT_RANKS
-    shapes: list[tuple[int, tuple[int, ...]]] = []
-    if rank <= _SUIT_RANKS - 3 and counts[i + 1] and counts[i + 2]:
-        shapes.append((1, (i, i + 1, i + 2)))
-    if rank <= _SUIT_RANKS - 2 and counts[i + 1]:
-        shapes.append((0, (i, i + 1)))
-    if rank <= _SUIT_RANKS - 3 and counts[i + 2]:
-        shapes.append((0, (i, i + 2)))
-    return shapes
+def _merge(left: tuple[int, ...], right: tuple[int, ...]) -> tuple[int, ...]:
+    """The min-plus merge of two distance vectors over shared targets."""
+    out = [_UNREACHED] * 10
+    for i, left_cost in enumerate(left):
+        left_pair, left_sets = divmod(i, 5)
+        for j, right_cost in enumerate(right):
+            right_pair, right_sets = divmod(j, 5)
+            if left_pair + right_pair > 1 or left_sets + right_sets > MAX_MELDS:
+                continue
+            index = (left_pair + right_pair) * 5 + left_sets + right_sets
+            out[index] = min(out[index], left_cost + right_cost)
+    return tuple(out)
 
 
-def _pareto(options: set[tuple[int, int, int]]) -> set[tuple[int, int, int]]:
-    """Drop options dominated by another with at least as many of every count."""
-    return {a for a in options if not any(b != a and b[0] >= a[0] and b[1] >= a[1] and b[2] >= a[2] for b in options)}
+# Distance vectors are interned: a class is an index into _VECTORS, and the
+# lazily filled tables below store classes. Distinct blocks collapse onto a
+# small pool of vectors, and merges of classes are computed once per pair, so
+# repeat queries reduce to dictionary hits.
+_VECTORS: list[tuple[int, ...]] = []
+_VECTOR_CLASSES: dict[tuple[int, ...], int] = {}
+_BLOCK_CLASSES: dict[tuple[int, ...], int] = {}
+_MERGED_CLASSES: dict[tuple[int, int], int] = {}
 
 
-# Combination runs over packed states -- sets * 10 + partials * 2 + head -- with
-# both counts clamped at four. The clamps lose nothing: a legal hand never fits
-# more than four sets, and the score only reads min(partials, 4 - sets), so a
-# fifth partial can never matter. Addition and scoring become table lookups.
-_STATE_SPACE = 50
+def _intern(vector: tuple[int, ...]) -> int:
+    """The class of a vector, registering it on first sight."""
+    got = _VECTOR_CLASSES.get(vector)
+    if got is None:
+        got = _VECTOR_CLASSES[vector] = len(_VECTORS)
+        _VECTORS.append(vector)
+    return got
 
 
-def _pack(sets: int, partials: int, head: int) -> int:
-    """One packed state index, its counts clamped to the useful range."""
-    return min(sets, MAX_MELDS) * 10 + min(partials, MAX_MELDS) * 2 + head
+#: The merge identity: zero cost for an empty target, unreached otherwise.
+_IDENTITY = _intern((0, *[_UNREACHED] * 9))
 
 
-def _added_states() -> tuple[tuple[int, ...], ...]:
-    """The packed-state addition table; -1 marks the two-heads conflict."""
-    table = []
-    for a in range(_STATE_SPACE):
-        row = []
-        for b in range(_STATE_SPACE):
-            if a % 2 and b % 2:
-                row.append(-1)
-            else:
-                row.append(_pack(a // 10 + b // 10, a % 10 // 2 + b % 10 // 2, a % 2 + b % 2))
-        table.append(tuple(row))
-    return tuple(table)
+def _block_class(block: tuple[int, ...]) -> int:
+    """The class of one block's distance vector, filled lazily.
 
-
-def _state_scores() -> tuple[tuple[int, ...], ...]:
-    """Each packed state's standard shanten, one row per meld count."""
-    table = []
-    for num_melds in range(MAX_MELDS + 1):
-        row = []
-        for state in range(_STATE_SPACE):
-            total_sets = state // 10 + num_melds
-            usable = min(state % 10 // 2, MAX_MELDS - total_sets)
-            row.append(_STANDARD_EMPTY - 2 * total_sets - usable - state % 2)
-        table.append(tuple(row))
-    return tuple(table)
-
-
-_ADD = _added_states()
-_SCORES = _state_scores()
-
-
-def _summed_scores() -> tuple[tuple[tuple[int, ...], ...], ...]:
-    """The score of each pairwise state sum, one table per meld count.
-
-    Scoring a sum directly skips materializing the combined state, so a final
-    combination can take a plain minimum. The two-heads conflict scores one
-    above the empty-hand ceiling, where no minimum ever picks it.
+    Suit and honor blocks share one table: their key widths differ, so the
+    tuples never collide.
     """
-    return tuple(
-        tuple(
-            tuple(scores[added] if (added := _ADD[a][b]) >= 0 else _STANDARD_EMPTY + 1 for b in range(_STATE_SPACE))
-            for a in range(_STATE_SPACE)
-        )
-        for scores in _SCORES
-    )
+    got = _BLOCK_CLASSES.get(block)
+    if got is None:
+        vector = _distance_vector(block, is_honor=len(block) < _SUIT_RANKS)
+        got = _BLOCK_CLASSES[block] = _intern(vector)
+    return got
 
 
-_SUMMED_SCORES = _summed_scores()
+def _merged_class(left: int, right: int) -> int:
+    """The class of two classes' merge, computed once per pair."""
+    key = (left, right)
+    got = _MERGED_CLASSES.get(key)
+    if got is None:
+        got = _MERGED_CLASSES[key] = _intern(_merge(_VECTORS[left], _VECTORS[right]))
+    return got
 
 
-@cache
-def _packed_options(block: tuple[int, ...]) -> tuple[int, ...]:
-    """One block's non-dominated splits as packed states.
-
-    The honors block is the seven-wide one; only the nine-wide suit blocks
-    may form runs.
-    """
-    return tuple({_pack(*option) for option in _block_options(block, is_honor=len(block) < _SUIT_RANKS)})
-
-
-def _combined(states: set[int] | tuple[int, ...], options: set[int] | tuple[int, ...]) -> set[int]:
-    """Every conflict-free pairwise sum of two packed-state collections."""
-    add = _ADD
-    return {added for state in states for option in options if (added := add[state][option]) >= 0}
-
-
-def _packed_blocks(counts: list[int]) -> list[tuple[int, ...]]:
-    """Each block's packed options for the count vector."""
-    return [_packed_options(tuple(counts[start:stop])) for start, stop in _BLOCKS]
+def _block_classes(counts: list[int]) -> list[int]:
+    """Each block's vector class for the count vector."""
+    return [_block_class(tuple(counts[start:stop])) for start, stop in _BLOCKS]
 
 
 def _standard(counts: list[int], num_melds: int) -> int:
     """Shanten toward the standard four-groups-and-a-pair shape."""
-    blocks = _packed_blocks(counts)
-    states: set[int] | tuple[int, ...] = (0,)
-    for options in blocks[:-1]:
-        states = _combined(states, options)
-    summed = _SUMMED_SCORES[num_melds]
-    return min(summed[state][option] for state in states for option in blocks[-1])
+    manzu, pinzu, souzu, honors = _block_classes(counts)
+    merged = _merged_class(_merged_class(_merged_class(manzu, pinzu), souzu), honors)
+    return _VECTORS[merged][5 + MAX_MELDS - num_melds] - 1
 
 
 def _chiitoi(counts: list[int]) -> int:
@@ -220,22 +183,20 @@ _BLOCK_INDEX = tuple(min(kind // _SUIT_RANKS, len(_BLOCKS) - 1) for kind in rang
 _IS_YAOCHUU = tuple(kind in YAOCHUU_KINDS for kind in range(34))
 
 
-def _leave_one_out(blocks: list[tuple[int, ...]], summed: tuple[tuple[int, ...], ...]) -> list[tuple[int, ...]]:
-    """For each block, the other blocks' combination folded to a score row.
+def _leave_one_out(classes: list[int]) -> list[int]:
+    """For each block, the class of the other blocks' merge.
 
-    Row ``b`` maps every packed state to the best score it reaches against
-    the combined states of all blocks but ``b``, so probing a replacement for
-    block ``b`` is one lookup per option.
+    Row ``b`` is the merged distance vector of all blocks but ``b``, so
+    probing a replacement for block ``b`` is one cached merge away.
     """
-    heads = [{0}]
-    for options in blocks[:-1]:
-        heads.append(_combined(heads[-1], options))
-    tail: set[int] = {0}
-    rows: list[tuple[int, ...]] = [()] * len(blocks)
-    for index in range(len(blocks) - 1, -1, -1):
-        states = _combined(heads[index], tail)
-        rows[index] = tuple(map(min, zip(*(summed[state] for state in states), strict=True)))
-        tail = _combined(tail, blocks[index])
+    heads = [_IDENTITY]
+    for cls in classes[:-1]:
+        heads.append(_merged_class(heads[-1], cls))
+    tail = _IDENTITY
+    rows = [0] * len(classes)
+    for index in range(len(classes) - 1, -1, -1):
+        rows[index] = _merged_class(heads[index], tail)
+        tail = _merged_class(classes[index], tail)
     return rows
 
 
@@ -294,7 +255,8 @@ def _probed_shantens(counts: list[int], num_melds: int, kinds: tuple[TileKind, .
     total = sum(counts)
     if total + delta not in _legal_sizes(num_melds):
         raise ValueError(f"a hand with {num_melds} melds cannot have {total + delta} concealed tiles")
-    rows = _leave_one_out(_packed_blocks(counts), _SUMMED_SCORES[num_melds])
+    rows = _leave_one_out(_block_classes(counts))
+    target = 5 + MAX_MELDS - num_melds
     closed_forms = num_melds == 0 and total + delta in _FULL_CONCEALED
     if closed_forms:
         pairs = distinct = 0
@@ -314,10 +276,9 @@ def _probed_shantens(counts: list[int], num_melds: int, kinds: tuple[TileKind, .
         block_index = _BLOCK_INDEX[kind]
         start, stop = _BLOCKS[block_index]
         counts[kind] += delta
-        options = _packed_options(tuple(counts[start:stop]))
+        block = tuple(counts[start:stop])
         counts[kind] -= delta
-        row = rows[block_index]
-        best = min(row[option] for option in options)
+        best = _VECTORS[_merged_class(rows[block_index], _block_class(block))][target] - 1
         if closed_forms:
             held = counts[kind]
             after = held + delta
