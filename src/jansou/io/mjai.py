@@ -4,20 +4,23 @@ One JSON object per line, in play order. A win (`hora`) here carries neither
 the winning hand nor the score breakdown, so both are recovered from the
 stream: the hand by replaying the winner's draws, discards, and calls, the
 winning tile from the last draw or discard, and the win value from the winner
-side of the recorded score deltas. The format states no final standing either,
-so it is settled from the last round under the rules.
+side of the recorded score deltas. The final standing is read from `end_game`
+when stated, else settled from the last round under the rules. The writer adds
+the small extensions -- names, rules, `reach_accepted`, the standing -- that
+let a game re-parse whole; docs/paifu/MJAI_JSOL.md specifies the dialect.
 """
 
 from __future__ import annotations
 
 import gzip
 import json
+from dataclasses import asdict, fields
 from pathlib import Path
 
 from jansou.core.hand import FULL_HAND_SIZE, CallSource, Meld, MeldType
 from jansou.core.notation import dump_mjai as _dump_tiles
 from jansou.core.notation import parse_mjai as _parse_tiles
-from jansou.core.rules import Rules, preset
+from jansou.core.rules import Rules, preset, preset_name_of
 from jansou.core.tiles import Tile, TileKind, Wind, full_tile_set
 from jansou.game.wall import DEAD_WALL_SIZE
 from jansou.io.paifu import (
@@ -31,6 +34,8 @@ from jansou.io.paifu import (
     Paifu,
     RoundLog,
     Ryuukyoku,
+    banked_riichi_seats,
+    canonical_kind,
     settled_final_scores,
 )
 
@@ -68,13 +73,18 @@ def parse_mjai(source: str | Path | bytes) -> Paifu:
     if start is None:
         raise MjaiError("MJAI stream has no start_kyoku")
     player_count = len(start["tehais"])
-    rules = preset("tenhou-3p") if player_count == 3 else preset("tenhou")
+    header = next((event for event in events if event["type"] == "start_game"), None) or {}
+    rules = _rules_of(header, player_count)
+    if rules.player_count != player_count:
+        raise MjaiError(f"rules name {rules.player_count} players but {player_count} hands are dealt")
     rounds = tuple(_parse_rounds(events, rules))
     return Paifu(
         rules=rules,
         player_count=player_count,
         rounds=rounds,
-        final_scores=settled_final_scores(rounds, rules) if rounds else None,
+        final_scores=_final_scores(events, rounds, rules),
+        names=tuple(header["names"]) if "names" in header else None,
+        preset=header.get("preset") or preset_name_of(rules),
     )
 
 
@@ -84,6 +94,41 @@ def _read(source: str | Path | bytes) -> str:
     if data[:2] == b"\x1f\x8b":
         data = gzip.decompress(data)
     return data.decode()
+
+
+def _rules_of(header: dict, player_count: int) -> Rules:
+    """The game's rules: stated outright, named as a preset, or inferred.
+
+    A ``start_game`` may carry the full configuration under ``rules`` (the
+    jansou extension) or name a ``preset``; a stream with neither plays under
+    the Tenhou preset matching the table size.
+    """
+    if "rules" in header:
+        return _parse_rules(header["rules"])
+    if "preset" in header:
+        return preset(header["preset"])
+    return preset("tenhou-3p") if player_count == 3 else preset("tenhou")
+
+
+def _parse_rules(data: dict) -> Rules:
+    """A rules configuration read back from its flat JSON object.
+
+    Keys the library does not know are dropped, so a log written by a newer
+    library still parses; absent keys keep their baseline defaults.
+    """
+    known = {field.name for field in fields(Rules)}
+    values = {key: value for key, value in data.items() if key in known}
+    if "game_length" in values:
+        values["game_length"] = _WIND_OF_NAME[values["game_length"]]
+    return Rules(**values)
+
+
+def _final_scores(events: list[dict], rounds: tuple[RoundLog, ...], rules: Rules) -> tuple[int, ...] | None:
+    """The final standing: as ``end_game`` states it, else settled from the rounds."""
+    end = next((event for event in events if event["type"] == "end_game"), None)
+    if end is not None and "scores" in end:
+        return tuple(end["scores"])
+    return settled_final_scores(rounds, rules) if rounds else None
 
 
 def _parse_rounds(events: list[dict], rules: Rules) -> list[RoundLog]:
@@ -218,6 +263,7 @@ def _agari(
         riichi_sticks=start["kyotaku"] if first else 0,
         deltas=deltas,
         value=_value_from_deltas(deltas, actor, honba=honba, rules=rules),
+        liable_seat=event.get("pao"),
     )
 
 
@@ -312,7 +358,7 @@ def _ryuukyoku(event: dict, player_count: int, *, events: list[Event], wall_spen
             reason = _abort_kind(events, player_count)
     tehais = event.get("tehais")
     tenpai = tuple(tehais[seat] is not None for seat in range(player_count)) if tehais else ()
-    return Ryuukyoku(kind=reason, deltas=tuple(event.get("deltas", ())), tenpai=tenpai)
+    return Ryuukyoku(kind=canonical_kind(reason), deltas=tuple(event.get("deltas", ())), tenpai=tenpai)
 
 
 # --- Writing ----------------------------------------------------------------
@@ -323,6 +369,9 @@ def dump_mjai(paifu: Paifu) -> str:
 
     A three-player game's North bonus is written as the ``kita`` event MJAI
     defines for it, followed by the replacement draw the stream already carries.
+    ``start_game`` carries the player names and the full rules configuration,
+    ``reach_accepted`` marks each banked deposit, and ``end_game`` states the
+    final standing -- so the game re-parses whole.
 
     Args:
         paifu: The game to serialize.
@@ -330,11 +379,27 @@ def dump_mjai(paifu: Paifu) -> str:
     Returns:
         The game as MJAI JSONL text (one JSON object per line).
     """
-    objects: list[dict] = [{"type": "start_game"}]
+    header: dict = {"type": "start_game"}
+    if paifu.names is not None:
+        header["names"] = list(paifu.names)
+    if paifu.preset is not None:
+        header["preset"] = paifu.preset
+    header["rules"] = _dump_rules(paifu.rules)
+    objects: list[dict] = [header]
     for round_log in paifu.rounds:
         objects.extend(_dump_round(round_log, paifu.player_count))
-    objects.append({"type": "end_game"})
+    end: dict = {"type": "end_game"}
+    if paifu.final_scores is not None:
+        end["scores"] = list(paifu.final_scores)
+    objects.append(end)
     return "\n".join(json.dumps(obj, separators=(",", ":")) for obj in objects)
+
+
+def _dump_rules(rules: Rules) -> dict:
+    """The rules configuration as a flat JSON object, its wind as a letter."""
+    data = asdict(rules)
+    data["game_length"] = _NAME_OF_WIND[rules.game_length]
+    return data
 
 
 def _dump_round(round_log: RoundLog, player_count: int) -> list[dict]:
@@ -352,8 +417,11 @@ def _dump_round(round_log: RoundLog, player_count: int) -> list[dict]:
             "tehais": [[_token(tile) for tile in hand] for hand in round_log.hands],
         }
     ]
+    banked = frozenset(banked_riichi_seats(round_log))
     for event in round_log.events:
         objects.extend(_dump_event(event, player_count))
+        if isinstance(event, Discard) and event.riichi and event.seat in banked:
+            objects.append({"type": "reach_accepted", "actor": event.seat})
     objects.extend(_dump_outcome(round_log.outcome))
     objects.append({"type": "end_kyoku"})
     return objects
@@ -408,6 +476,8 @@ def _dump_outcome(outcome: tuple[Agari, ...] | Ryuukyoku) -> list[dict]:
         hora: dict = {"type": "hora", "actor": agari.winner, "target": agari.from_seat, "deltas": list(agari.deltas)}
         if agari.ura_indicators:
             hora["uradora_markers"] = [_token(tile) for tile in agari.ura_indicators]
+        if agari.liable_seat is not None:
+            hora["pao"] = agari.liable_seat
         objects.append(hora)
     return objects
 

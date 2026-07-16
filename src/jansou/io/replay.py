@@ -55,7 +55,7 @@ from jansou.game.events import (
 )
 from jansou.game.flow import DecisionKind, Position, deal_steps, new_deal
 from jansou.game.wall import DEAD_WALL_SIZE, Wall
-from jansou.io.paifu import Call, Discard, DoraReveal, Draw, Kita, Ryuukyoku
+from jansou.io.paifu import Call, Discard, DoraReveal, Draw, Kita, Ryuukyoku, canonical_kind
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -72,10 +72,6 @@ _DEAD_WALL_REPLACEMENTS = 4
 _DORA_SLOTS = (4, 6, 8, 10, 12)
 _URA_SLOTS = (5, 7, 9, 11, 13)
 _DEAL_PATTERN = (4, 4, 4, 1)
-
-#: The record kinds the formats use for the two aborts a decision reproduces.
-_NINE_TERMINALS_KINDS = frozenset({"yao9", "nine_terminals", "kyushukyuhai"})
-_TRIPLE_RON_KINDS = frozenset({"ron3", "triple_ron", "sanchahou"})
 
 _CLAIM_TYPES = (MeldType.PON, MeldType.CHII, MeldType.DAIMINKAN)
 
@@ -426,7 +422,7 @@ class _Script:
                 # tile and let the menu pick the shape.
                 tile = self._outcome[0].winning_tile
                 return (AddedKan(tile), ClosedKan(tile.kind), Nuki())
-        elif self._outcome.kind in _NINE_TERMINALS_KINDS:
+        elif canonical_kind(self._outcome.kind) == "yao9":
             return NineTerminals()
         raise self._error(f"the record ends with seat {seat} still to act")
 
@@ -436,7 +432,7 @@ class _Script:
         if logged is None:
             # A triple-ron abort names no winners, but every offered reaction
             # was one of the three ron declarations that caused it.
-            triple = isinstance(self._outcome, Ryuukyoku) and self._outcome.kind in _TRIPLE_RON_KINDS
+            triple = isinstance(self._outcome, Ryuukyoku) and canonical_kind(self._outcome.kind) == "ron3"
             return Ron() if self._won_by_ron(seat) or triple else Pass()
         claims = (
             isinstance(logged, Call)

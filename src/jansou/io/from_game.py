@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from jansou.core.hand import CallSource, Meld, MeldType
-from jansou.core.rules import RIICHI_DEPOSIT
+from jansou.core.rules import RIICHI_DEPOSIT, preset_name_of
 from jansou.game.events import (
     Call as GameCall,
 )
@@ -47,7 +47,19 @@ from jansou.io.paifu import (
     Paifu,
     RoundLog,
     Ryuukyoku,
+    settled_final_scores,
 )
+
+#: Each engine draw kind's canonical record name.
+_KIND_NAMES = {
+    RyuukyokuKind.EXHAUSTIVE: "exhaustive",
+    RyuukyokuKind.NAGASHI: "nm",
+    RyuukyokuKind.NINE_TERMINALS: "yao9",
+    RyuukyokuKind.FOUR_WINDS: "kaze4",
+    RyuukyokuKind.FOUR_RIICHI: "reach4",
+    RyuukyokuKind.FOUR_KANS: "kan4",
+    RyuukyokuKind.TRIPLE_RON: "ron3",
+}
 
 if TYPE_CHECKING:
     from jansou.core.rules import Rules
@@ -62,26 +74,37 @@ def paifu_from_game(environment: Environment) -> Paifu:
 
     Args:
         environment: A finished environment run with recording enabled, carrying
-            its per-deal event lists and rules.
+            its per-deal event lists, rules, and player names.
 
     Returns:
         The neutral game record for the recorded game.
     """
-    return paifu_from_records(environment.records, environment.rules)
+    return paifu_from_records(environment.records, environment.rules, names=environment.names)
 
 
-def paifu_from_records(records: list[list[Event]], rules: Rules) -> Paifu:
+def paifu_from_records(records: list[list[Event]], rules: Rules, names: tuple[str, ...] | None = None) -> Paifu:
     """Build the neutral game record from the per-deal event lists a recording environment kept.
+
+    The final standing is settled from the last deal under the rules -- the
+    same arithmetic the environment itself ends the game with.
 
     Args:
         records: One recorded event list per deal, in play order.
         rules: The rules configuration the game was played under.
+        names: The player names per seat, when known.
 
     Returns:
         The neutral game record for the recorded deals.
     """
-    rounds = [_round_from_events(deal, rules) for deal in records]
-    return Paifu(rules=rules, player_count=rules.player_count, rounds=tuple(rounds))
+    rounds = tuple(_round_from_events(deal, rules) for deal in records)
+    return Paifu(
+        rules=rules,
+        player_count=rules.player_count,
+        rounds=rounds,
+        final_scores=settled_final_scores(rounds, rules) if rounds else None,
+        names=names,
+        preset=preset_name_of(rules),
+    )
 
 
 def _round_from_events(events: list[Event], rules: Rules) -> RoundLog:
@@ -145,7 +168,7 @@ def _outcome(
     if wins:
         return tuple(_agari_of(win, start, settlement, rules, first=index == 0) for index, win in enumerate(wins))
     deltas = tuple(settlement.deltas) if settlement is not None else ()
-    kind = "exhaustive" if draw is None or draw.kind is RyuukyokuKind.EXHAUSTIVE else draw.kind.name.lower()
+    kind = "exhaustive" if draw is None else _KIND_NAMES[draw.kind]
     tenpai = tuple(seat in draw.counted_ready for seat in range(rules.player_count)) if draw is not None else ()
     return Ryuukyoku(kind=kind, deltas=deltas, tenpai=tenpai)
 
@@ -170,6 +193,7 @@ def _agari_of(win: GameWin, start: DealStart, settlement: ScoreChange | None, ru
         fu=win.result.fu.total,
         value=value,
         hand=win.hand,
+        liable_seat=win.liable_seat,
     )
 
 
@@ -183,7 +207,8 @@ def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, rules: Rules, p
     """Per-winner deltas that reproduce the win value under a reader's honba rule.
 
     The pot -- the deposit points this win sweeps off the table -- joins the
-    winner's gain with no paying seat, exactly as the engine settles it.
+    winner's gain with no paying seat, and a liable seat answers for the
+    payments, exactly as the engine settles them.
     """
     payment = win.result.payment
     deltas = [0] * rules.player_count
@@ -193,11 +218,18 @@ def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, rules: Rules, p
                 continue
             share = payment.tsumo_dealer if seat == dealer else payment.tsumo_non_dealer
             pay = share + rules.honba_value * honba
-            deltas[seat] -= pay
+            deltas[win.liable_seat if win.liable_seat is not None else seat] -= pay
             deltas[win.seat] += pay
     else:
-        total = payment.ron + rules.honba_per_counter * honba
-        deltas[win.seat] += total
-        deltas[win.from_seat] -= total
+        honba_total = rules.honba_per_counter * honba
+        deltas[win.seat] += payment.ron + honba_total
+        if win.liable_seat is None:
+            deltas[win.from_seat] -= payment.ron + honba_total
+        else:
+            liable_share = payment.ron // 2
+            honba_payer = win.liable_seat if rules.pao_honba_to_liable else win.from_seat
+            deltas[win.liable_seat] -= liable_share
+            deltas[win.from_seat] -= payment.ron - liable_share
+            deltas[honba_payer] -= honba_total
     deltas[win.seat] += pot
     return tuple(deltas)

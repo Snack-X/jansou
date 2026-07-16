@@ -217,6 +217,50 @@ class TestDrawRoundTrips:
             assert isinstance(reparsed.rounds[0].outcome, Ryuukyoku)
 
 
+class TestPaoLiability:
+    def test_liability_round_trips_through_every_writer(self) -> None:
+        events = (*_go_around(), Draw(0, parse_mpsz("4s")[0]))
+        round_log = _round_with(events, "123m456m789m11p234s", "4s", from_seat=0)
+        outcome = (replace(round_log.outcome[0], liable_seat=2),)
+        paifu = _game(replace(round_log, outcome=outcome))
+        assert 'paoWho="2"' in dump_mjlog(paifu)
+        assert '"pao":2' in dump_mjai(paifu)
+        for _name, dump, parse in _WRITERS:
+            reparsed = parse(dump(paifu))
+            assert reparsed.rounds[0].outcome[0].liable_seat == 2
+
+
+class TestMjaiDialect:
+    @staticmethod
+    def _drawn_game() -> Paifu:
+        outcome = Ryuukyoku(kind="exhaustive", deltas=(0, 0, 0, 0), tenpai=(False, False, False, False))
+        events = (*_go_around(), Draw(0, parse_mpsz("1z")[0]), Discard(0, parse_mpsz("1z")[0], riichi=True))
+        return _game(_round(events, outcome))
+
+    def test_start_game_and_end_game_carry_the_game_identity(self) -> None:
+        paifu = replace(self._drawn_game(), names=("a", "b", "c", "d"), preset="tenhou", final_scores=(25000,) * 4)
+        lines = [json.loads(line) for line in dump_mjai(paifu).splitlines()]
+        assert lines[0]["names"] == ["a", "b", "c", "d"]
+        assert lines[0]["preset"] == "tenhou"
+        assert lines[0]["rules"]["game_length"] == "S"
+        assert lines[-1] == {"type": "end_game", "scores": [25000, 25000, 25000, 25000]}
+        reparsed = parse_mjai(dump_mjai(paifu))
+        assert (reparsed.rules, reparsed.names, reparsed.preset) == (paifu.rules, paifu.names, paifu.preset)
+        assert reparsed.final_scores == paifu.final_scores
+
+    def test_reach_accepted_follows_a_banked_riichi_discard(self) -> None:
+        lines = dump_mjai(self._drawn_game()).splitlines()
+        accepted = [json.loads(line) for line in lines if '"reach_accepted"' in line]
+        assert accepted == [{"type": "reach_accepted", "actor": 0}]
+        reach_index = next(index for index, line in enumerate(lines) if '"reach"' in line)
+        assert '"reach_accepted"' in lines[reach_index + 2]  # reach, dahai, then the acceptance
+
+    def test_no_reach_accepted_for_a_triple_ronned_riichi_discard(self) -> None:
+        outcome = Ryuukyoku(kind="ron3", deltas=(0, 0, 0, 0))
+        events = (*_go_around(), Draw(0, parse_mpsz("1z")[0]), Discard(0, parse_mpsz("1z")[0], riichi=True))
+        assert "reach_accepted" not in dump_mjai(_game(_round(events, outcome)))
+
+
 class TestFinalStandings:
     def test_mjlog_carries_a_standing_on_a_final_win(self) -> None:
         events = (*_go_around(), Draw(0, parse_mpsz("4s")[0]))

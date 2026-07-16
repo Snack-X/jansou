@@ -324,6 +324,18 @@ PRESETS: MappingProxyType[str, Rules] = MappingProxyType(
 )
 
 
+def preset_name_of(rules: Rules) -> str | None:
+    """The name of the preset a configuration equals, or None for a custom one.
+
+    Args:
+        rules: The configuration to look up.
+
+    Returns:
+        The matching preset name, or ``None`` when no preset equals it.
+    """
+    return next((name for name, config in PRESETS.items() if config == rules), None)
+
+
 def preset(name: str) -> Rules:
     """The named preset configuration.
 

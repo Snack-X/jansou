@@ -222,6 +222,7 @@ def _agari(element: ET.Element, player_count: int) -> Agari:
         meld for value in element.get("m", "").split(",") if value and (meld := _decode_meld(int(value))) is not None
     )
     ura = element.get("doraHaiUra")
+    pao = element.get("paoWho")
     return Agari(
         winner=who,
         from_seat=int(element.get("fromWho", str(who))),
@@ -233,6 +234,7 @@ def _agari(element: ET.Element, player_count: int) -> Agari:
         fu=ten[0],
         value=ten[1],
         hand=Hand(concealed, melds),
+        liable_seat=int(pao) if pao is not None else None,
     )
 
 
@@ -420,6 +422,8 @@ def _dump_agari(agari: Agari, record: object, player_count: int, owari: str | No
         f'who="{agari.winner}" fromWho="{agari.from_seat}" machi="{tile_to_136(agari.winning_tile)}"'
         f' ten="{ten}" hai="{hai}" ba="{agari.honba},{agari.riichi_sticks}" sc="{sc}"'
     )
+    if agari.liable_seat is not None:
+        attrs += f' paoWho="{agari.liable_seat}"'
     if melds:
         attrs += f' m="{melds}"'
     if agari.ura_indicators:

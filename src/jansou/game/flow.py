@@ -611,6 +611,7 @@ def _apply_wins(state: GameState, records: list[_WinRecord], emit: Emit) -> None
     """Apply every winner's payment, collect the pot, and emit the results."""
     deltas = [0] * state.player_count
     for record in records:
+        pao = _find_liability(state, record)
         emit(
             Win(
                 record.seat,
@@ -619,9 +620,10 @@ def _apply_wins(state: GameState, records: list[_WinRecord], emit: Emit) -> None
                 _win_hand_of(state, record),
                 record.result,
                 record.ura_indicators,
+                liable_seat=pao.payer if pao is not None else None,
             )
         )
-        _score_one_win(state, record, deltas)
+        _score_one_win(state, record, deltas, pao)
     for seat in range(state.player_count):
         state.scores[seat] += deltas[seat]
     emit(ScoreChange(tuple(deltas), tuple(state.scores)))
@@ -635,9 +637,8 @@ def _win_hand_of(state: GameState, record: _WinRecord) -> Hand:
     return Hand((*player.concealed, record.tile), tuple(player.melds))
 
 
-def _score_one_win(state: GameState, record: _WinRecord, deltas: list[int]) -> None:
+def _score_one_win(state: GameState, record: _WinRecord, deltas: list[int], pao: Liability | None) -> None:
     """Add one winner's deltas, honoring liability and the deposit pool."""
-    pao = _find_liability(state, record)
     if record.from_seat is None:
         _tsumo_deltas(state, record, deltas, pao)
     else:
@@ -796,7 +797,8 @@ def _exhaustive_draw(state: GameState, emit: Emit) -> Generator[DecisionPoint, A
     for seat in range(state.player_count):
         state.scores[seat] += deltas[seat]
     revealed = tuple((seat, state.players[seat].as_hand(include_drawn=False)) for seat in sorted(ready))
-    emit(Ryuukyoku(kind=RyuukyokuKind.EXHAUSTIVE, revealed=revealed, counted_ready=ready))
+    kind = RyuukyokuKind.NAGASHI if nagashi else RyuukyokuKind.EXHAUSTIVE
+    emit(Ryuukyoku(kind=kind, revealed=revealed, counted_ready=ready))
     emit(ScoreChange(tuple(deltas), tuple(state.scores)))
     return _Terminal(DealOutcome((), _dealer_repeats_on_draw(state, ready), is_draw=True))
 

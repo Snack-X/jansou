@@ -40,6 +40,7 @@ from jansou.game.flow import (
     DecisionKind,
     IllegalActionError,
     Position,
+    _apply_wins,
     _find_liability,
     _record_liability,
     _score_one_win,
@@ -657,6 +658,7 @@ class TestExhaustiveVariants:
         rec = Recorder()
         play_deal(state, decide, rec)
         assert state.scores[0] == 25000 + 12000  # dealer nagashi mangan
+        assert rec.of(Ryuukyoku)[0].kind is RyuukyokuKind.NAGASHI
 
     def test_no_dealer_repeat_when_dealer_noten(self) -> None:
         rules = Rules(dealer_repeat_on_tenpai=True)
@@ -681,7 +683,7 @@ class TestPao:
         ]
         record = _WinRecord(seat=0, from_seat=None, tile=winning, result=result)
         deltas = [0, 0, 0, 0]
-        _score_one_win(state, record, deltas)
+        _score_one_win(state, record, deltas, _find_liability(state, record))
         assert deltas[2] < 0  # the liable player pays
         assert deltas[1] == 0  # the others pay nothing
         assert deltas[3] == 0
@@ -695,10 +697,21 @@ class TestPao:
         state.liabilities = [Liability(beneficiary=0, payer=2, shape=Yaku.DAISANGEN)]
         record = _WinRecord(seat=0, from_seat=1, tile=winning, result=result)
         deltas = [0, 0, 0, 0]
-        _score_one_win(state, record, deltas)
+        _score_one_win(state, record, deltas, _find_liability(state, record))
         assert deltas[1] < 0  # the discarder pays half
         assert deltas[2] < 0  # the liable pays half
         assert deltas[0] == 32000
+
+    def test_pao_win_event_names_the_liable_seat(self) -> None:
+        hand = Hand(tuple(parse_mpsz("555z666z777z789s11p")))
+        winning = parse_mpsz("7s")[0]
+        result = score(hand, winning, WinContext(rules=Rules(), seat_wind=Wind.SOUTH))
+        state = flow_state([_JUNK, _JUNK, _JUNK, _JUNK])
+        state.liabilities = [Liability(beneficiary=0, payer=2, shape=Yaku.DAISANGEN)]
+        record = _WinRecord(seat=0, from_seat=1, tile=winning, result=result)
+        rec = Recorder()
+        _apply_wins(state, [record], rec)
+        assert rec.of(Win)[0].liable_seat == 2
 
     def test_pao_ron_honba_follows_the_ruleset(self) -> None:
         hand = Hand(tuple(parse_mpsz("555z666z777z789s11p")))
@@ -710,7 +723,7 @@ class TestPao:
             state.liabilities = [Liability(beneficiary=0, payer=2, shape=Yaku.DAISANGEN)]
             record = _WinRecord(seat=0, from_seat=1, tile=winning, result=result)
             deltas = [0, 0, 0, 0]
-            _score_one_win(state, record, deltas)
+            _score_one_win(state, record, deltas, _find_liability(state, record))
             return deltas
 
         # Tenhou and M.League give the honba to the liable player; renmei to the discarder.

@@ -115,6 +115,8 @@ class Agari:
         fu: The fu the log recorded, or None when not stated (e.g. a limit hand).
         value: The point value the log recorded, or None when not stated.
         hand: The winner's hand when the log carries it outright, else None.
+        liable_seat: The seat answering for the win under pao, or ``None``
+            when no liability applied or the source does not say.
     """
 
     winner: int
@@ -127,6 +129,7 @@ class Agari:
     fu: int | None = None
     value: int | None = None
     hand: Hand | None = None
+    liable_seat: int | None = None
 
     @property
     def is_tsumo(self) -> bool:
@@ -139,7 +142,11 @@ class Ryuukyoku:
     """A round that ended without a win.
 
     Attributes:
-        kind: The draw kind (``"exhaustive"`` or an abortive-draw name).
+        kind: The draw kind. The canonical names are ``"exhaustive"``,
+            ``"nm"`` (nagashi mangan), ``"yao9"``, ``"reach4"``, ``"ron3"``,
+            ``"kaze4"``, and ``"kan4"``; a source's own spelling is kept when
+            it says more than the canonical name (Tenhou JSON's tags), so
+            consumers compare through ``canonical_kind``.
         deltas: The per-seat score changes settled at the draw.
         tenpai: Per-seat readiness, marking who was counted tenpai.
     """
@@ -201,6 +208,10 @@ class Paifu:
             format carries none (MJAI); ``None`` when neither is available.
         final_points: The platform's adjusted result per seat (Tenhou's uma
             column), or ``None`` when the source carries no standing.
+        names: The player names per seat, or ``None`` when the source
+            carries none.
+        preset: The name of the preset ``rules`` equals, or ``None`` for a
+            custom configuration or when the source does not say.
     """
 
     rules: Rules
@@ -208,6 +219,8 @@ class Paifu:
     rounds: tuple[RoundLog, ...]
     final_scores: tuple[int, ...] | None = None
     final_points: tuple[float, ...] | None = None
+    names: tuple[str, ...] | None = None
+    preset: str | None = None
 
 
 @dataclass(frozen=True)
@@ -237,20 +250,71 @@ class AgariRecord:
 
 # --- Score chain --------------------------------------------------------------
 
-#: The names the formats give a triple-ron abort.
-_TRIPLE_RON_KINDS = frozenset({"ron3", "triple_ron", "sanchahou", "三家和", "三家和了"})
+#: Every spelling the formats give each draw kind, mapped to its canonical name:
+#: Tenhou's short names (mjlog), the engine's kind names (from_game), the wider
+#: MJAI ecosystem's reasons (RiichiEnv, Mortal), and Tenhou JSON's tags.
+_CANONICAL_OF = {
+    "exhaustive_draw": "exhaustive",
+    "流局": "exhaustive",
+    "全員聴牌": "exhaustive",
+    "全員不聴": "exhaustive",
+    "nagashi": "nm",
+    "nagashimangan": "nm",
+    "nagashi_mangan": "nm",
+    "流し満貫": "nm",
+    "nine_terminals": "yao9",
+    "kyushu_kyuhai": "yao9",
+    "kyushukyuhai": "yao9",
+    "九種九牌": "yao9",
+    "four_riichi": "reach4",
+    "suucha_riichi": "reach4",
+    "四家立直": "reach4",
+    "triple_ron": "ron3",
+    "sanchaho": "ron3",
+    "sanchahou": "ron3",
+    "三家和": "ron3",
+    "三家和了": "ron3",
+    "four_winds": "kaze4",
+    "sufuurenta": "kaze4",
+    "suufon_renda": "kaze4",
+    "四風連打": "kaze4",
+    "four_kans": "kan4",
+    "suukansansen": "kan4",
+    "suukaikan": "kan4",
+    "四開槓": "kan4",
+}
 
 
-def _banked_riichi_seats(round_log: RoundLog) -> list[int]:
+def canonical_kind(kind: str) -> str:
+    """The canonical name of a draw kind, whatever spelling a source used.
+
+    Args:
+        kind: A ``Ryuukyoku.kind`` value from any source.
+
+    Returns:
+        The canonical name (``"exhaustive"``, ``"nm"``, ``"yao9"``,
+        ``"reach4"``, ``"ron3"``, ``"kaze4"``, ``"kan4"``), or ``kind``
+        itself when no spelling matches.
+    """
+    return _CANONICAL_OF.get(kind, kind)
+
+
+def banked_riichi_seats(round_log: RoundLog) -> list[int]:
     """Seats whose riichi deposit was banked during the round.
 
     Every riichi-declaring discard banks its deposit once it survives the ron
     window; one the round ends on -- taken by a winner, or by the three rons
     of a triple-ron abort -- never completes, and never pays.
+
+    Args:
+        round_log: The round to inspect.
+
+    Returns:
+        The declaring seats that paid their deposit, in declaration order.
     """
     declared = [event.seat for event in round_log.events if isinstance(event, Discard) and event.riichi]
     outcome = round_log.outcome
-    ends_on_ron = not isinstance(outcome, Ryuukyoku) or outcome.kind in _TRIPLE_RON_KINDS
+    ends_on_ron = not isinstance(outcome, Ryuukyoku) or canonical_kind(outcome.kind) == "ron3"
     last = round_log.events[-1] if round_log.events else None
     if ends_on_ron and isinstance(last, Discard) and last.riichi:
         declared.remove(last.seat)
@@ -272,7 +336,7 @@ def settled_scores(round_log: RoundLog) -> tuple[int, ...]:
         Each seat's score after the round.
     """
     scores = list(round_log.scores)
-    for seat in _banked_riichi_seats(round_log):
+    for seat in banked_riichi_seats(round_log):
         scores[seat] -= RIICHI_DEPOSIT
     outcome = round_log.outcome
     for deltas in [outcome.deltas] if isinstance(outcome, Ryuukyoku) else [agari.deltas for agari in outcome]:
@@ -295,7 +359,7 @@ def leftover_deposits(round_log: RoundLog) -> int:
         The number of deposits left on the table.
     """
     if isinstance(round_log.outcome, Ryuukyoku):
-        return round_log.riichi_sticks + len(_banked_riichi_seats(round_log))
+        return round_log.riichi_sticks + len(banked_riichi_seats(round_log))
     return 0
 
 

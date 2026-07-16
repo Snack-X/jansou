@@ -85,7 +85,8 @@ class Environment:
     game state of the deal in progress, complete and unmasked, wall included --
     is the sanctioned way to inspect hands and the remaining wall mid-game;
     read it, never mutate it. ``unmasked_seats`` complements it by delivering
-    events unmasked to chosen seats.
+    events unmasked to chosen seats. ``names`` holds the player names of the
+    game in progress or last played, for the record built from it.
     """
 
     def __init__(
@@ -121,6 +122,7 @@ class Environment:
         self.decisions: list[list[Decision]] = []
         self.unmasked_seats = frozenset(unmasked_seats)
         self.state: GameState | None = None
+        self.names: tuple[str, ...] | None = None
 
     def run(self, agents: list[Agent], names: tuple[str, ...] | None = None) -> GameResult:
         """Play the whole game with one agent per seat, returning the result.
@@ -194,6 +196,7 @@ class Environment:
                 offered set.
         """
         names = names or tuple(f"Player {seat + 1}" for seat in range(self.rules.player_count))
+        self.names = names
         scores = [self.rules.starting_points] * self.rules.player_count
         pending: list[Event] = []
 

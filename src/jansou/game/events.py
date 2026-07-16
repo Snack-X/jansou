@@ -25,6 +25,7 @@ class RyuukyokuKind(Enum):
     """The reason a deal ended without a win."""
 
     EXHAUSTIVE = auto()
+    NAGASHI = auto()
     NINE_TERMINALS = auto()
     FOUR_WINDS = auto()
     FOUR_RIICHI = auto()
@@ -179,6 +180,7 @@ class Win(Event):
     Attributes:
         from_seat: The discarder on a ron, or ``None`` on a tsumo.
         winning_tile: The tile that completed the hand.
+        liable_seat: The seat answering for the win under pao, or ``None``.
     """
 
     seat: int
@@ -187,6 +189,7 @@ class Win(Event):
     hand: Hand
     result: ScoreResult
     ura_indicators: tuple[Tile, ...] = ()
+    liable_seat: int | None = None
 
 
 @dataclass(frozen=True)

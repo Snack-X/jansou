@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from jansou.core.rules import PRESETS, Rules, preset
+from jansou.core.rules import PRESETS, Rules, preset, preset_name_of
 from jansou.core.tiles import Wind
 
 
@@ -79,6 +79,13 @@ class TestPresets:
         assert len(PRESETS) == 12
         for name in PRESETS:
             assert preset(name) == PRESETS[name]
+
+    def test_preset_name_of_recovers_every_name(self) -> None:
+        for name in PRESETS:
+            assert preset_name_of(preset(name)) == name
+
+    def test_preset_name_of_rejects_a_custom_configuration(self) -> None:
+        assert preset_name_of(Rules(kiriage_mangan=True)) is None
 
     def test_association_base_via_renmei(self) -> None:
         rules = preset("renmei")

@@ -13,6 +13,7 @@ from jansou.io.paifu import (
     Paifu,
     RoundLog,
     Ryuukyoku,
+    canonical_kind,
     leftover_deposits,
     replay_round,
     settled_final_scores,
@@ -185,6 +186,19 @@ class TestScoreChain:
         round_log = _round(Ryuukyoku(kind="ron3"), events=events, riichi_sticks=1)
         assert settled_scores(round_log) == (25000, 25000, 25000, 25000)
         assert leftover_deposits(round_log) == 1
+
+    def test_a_triple_ron_never_banks_in_any_spelling(self) -> None:
+        # RiichiEnv writes "sanchaho"; the alias map keeps the settlement exact.
+        events = (Discard(2, _t("M1"), riichi=True),)
+        assert settled_scores(_round(Ryuukyoku(kind="sanchaho"), events=events)) == (25000,) * 4
+
+    def test_canonical_kind_maps_every_dialect(self) -> None:
+        assert canonical_kind("sanchahou") == "ron3"
+        assert canonical_kind("三家和") == "ron3"
+        assert canonical_kind("suukansansen") == "kan4"
+        assert canonical_kind("nagashimangan") == "nm"
+        assert canonical_kind("exhaustive") == "exhaustive"
+        assert canonical_kind("some_future_reason") == "some_future_reason"
 
     def test_riichi_banked_before_a_later_ron(self) -> None:
         # Seat 1's riichi discard passed; the win rides a later plain discard.

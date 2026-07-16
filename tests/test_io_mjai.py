@@ -10,11 +10,13 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
+import json
 from itertools import pairwise
 
+from jansou.core.rules import Rules, preset
 from jansou.core.tiles import Tile, TileKind
 from jansou.game.actions import NineTerminals
-from jansou.io.mjai import MjaiError, parse_mjai
+from jansou.io.mjai import MjaiError, _dump_rules, parse_mjai
 from jansou.io.paifu import Kita, Ryuukyoku, leftover_deposits, settled_scores
 from jansou.io.replay import replay_round_decisions
 from jansou.validation.check import check_paifu
@@ -110,6 +112,49 @@ class TestParsing:
     def test_truncated_stream_settles_no_final_scores(self) -> None:
         # A start_kyoku without its end_kyoku parses to no rounds, and no standing.
         assert parse_mjai(_stream(_START, _START_KYOKU, _TSUMO)).final_scores is None
+
+    def test_plain_stream_infers_the_tenhou_preset(self) -> None:
+        paifu = parse_mjai(_stream(_START, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU))
+        assert paifu.rules == preset("tenhou")
+        assert paifu.preset == "tenhou"
+        assert paifu.names is None
+
+    def test_start_game_rules_and_names_are_read_back(self) -> None:
+        header = json.dumps(
+            {"type": "start_game", "names": ["a", "b", "c", "d"], "rules": _dump_rules(preset("m-league"))}
+        )
+        paifu = parse_mjai(_stream(header, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU))
+        assert paifu.rules == preset("m-league")
+        assert paifu.preset == "m-league"
+        assert paifu.names == ("a", "b", "c", "d")
+
+    def test_start_game_preset_name_alone_selects_the_rules(self) -> None:
+        header = '{"type":"start_game","preset":"mahjong-soul"}'
+        paifu = parse_mjai(_stream(header, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU))
+        assert paifu.rules == preset("mahjong-soul")
+        assert paifu.preset == "mahjong-soul"
+
+    def test_unknown_rule_keys_are_dropped(self) -> None:
+        # A log written by a newer library parses; its extra flags are ignored.
+        header = '{"type":"start_game","rules":{"kuitan":false,"a_future_flag":true}}'
+        paifu = parse_mjai(_stream(header, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU))
+        assert paifu.rules == Rules(kuitan=False)
+
+    def test_rules_player_count_must_match_the_dealt_hands(self) -> None:
+        header = '{"type":"start_game","preset":"tenhou-3p"}'
+        with pytest.raises(MjaiError, match="players"):
+            parse_mjai(_stream(header, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU))
+
+    def test_end_game_scores_state_the_standing_outright(self) -> None:
+        end = '{"type":"end_game","scores":[30000,20000,25000,25000]}'
+        paifu = parse_mjai(_stream(_START, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU, end))
+        assert paifu.final_scores == (30000, 20000, 25000, 25000)
+
+    def test_foreign_draw_reasons_normalize_to_canonical_kinds(self) -> None:
+        draw = '{"type":"ryukyoku","reason":"sanchaho","deltas":[0,0,0,0]}'
+        outcome = parse_mjai(_stream(_START_KYOKU, _TSUMO, draw, _END_KYOKU)).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "ron3"
 
     def test_ryukyoku_round_has_no_wins(self) -> None:
         draw = '{"type":"ryukyoku","reason":"exhaustive_draw","deltas":[0,0,0,0],"tehais":[["1m"],null,null,null]}'

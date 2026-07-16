@@ -8,7 +8,7 @@ import pytest
 
 from jansou.core.hand import Hand
 from jansou.core.notation import parse_mpsz
-from jansou.core.rules import RIICHI_DEPOSIT, preset
+from jansou.core.rules import RIICHI_DEPOSIT, Rules, preset
 from jansou.core.tiles import Wind
 from jansou.game.agents import RandomAgent, SmartEfficiencyAgent
 from jansou.game.environment import Environment
@@ -60,12 +60,15 @@ class TestEngineExport:
                     assert verdict.passed, verdict.detail
         assert checked > 0
 
-    def test_engine_records_carry_no_final_standing(self) -> None:
+    def test_engine_records_carry_the_game_identity_and_standing(self) -> None:
         env = Environment(preset("tenhou"), seed=1)
-        env.run([RandomAgent(seat) for seat in range(4)])
+        result = env.run([RandomAgent(seat) for seat in range(4)], names=("N", "E", "S", "W"))
         paifu = paifu_from_game(env)
-        assert paifu.final_scores is None
+        # The settled standing reproduces the environment's own result.
+        assert paifu.final_scores == result.scores
         assert paifu.final_points is None
+        assert paifu.names == ("N", "E", "S", "W")
+        assert paifu.preset == "tenhou"
 
     def test_round_scores_chain_through_recorded_games(self) -> None:
         # Seeds picked to exercise the two spots the bridge once got wrong:
@@ -86,21 +89,57 @@ class TestEngineExport:
         assert saw_carried
         assert saw_multi_ron
 
+    def test_engine_game_reparses_whole_through_mjai(self) -> None:
+        env = Environment(preset("tenhou"), seed=6)
+        env.run([SmartEfficiencyAgent(60 + offset) for offset in range(4)], names=("a", "b", "c", "d"))
+        paifu = paifu_from_game(env)
+        reparsed = parse_mjai(dump_mjai(paifu))
+        assert reparsed.rules == paifu.rules
+        assert reparsed.names == paifu.names
+        assert reparsed.preset == paifu.preset
+        assert reparsed.final_scores == paifu.final_scores
+        for ours, theirs in zip(paifu.rounds, reparsed.rounds, strict=True):
+            assert theirs.scores == ours.scores
+            assert theirs.riichi_sticks == ours.riichi_sticks
+            if isinstance(ours.outcome, Ryuukyoku):
+                assert isinstance(theirs.outcome, Ryuukyoku)
+                assert theirs.outcome.kind == ours.outcome.kind
+            else:
+                assert not isinstance(theirs.outcome, Ryuukyoku)
+                assert [agari.deltas for agari in theirs.outcome] == [agari.deltas for agari in ours.outcome]
 
-def _win(concealed: str, winning: str, *, seat: int, dealer: int, sticks: int = 0) -> GameWin:
-    """A recorded ron win scored in the context its replay will reproduce."""
+
+def _win(
+    concealed: str,
+    winning: str,
+    *,
+    seat: int,
+    dealer: int,
+    sticks: int = 0,
+    from_seat: int | None = 2,
+    liable: int | None = None,
+) -> GameWin:
+    """A recorded win (ron from seat 2 unless told otherwise) scored in its replay context."""
     hand = Hand(tuple(parse_mpsz(concealed)), ())
     tile = parse_mpsz(winning)[0]
     context = WinContext(
         rules=preset("tenhou"),
         round_wind=Wind.EAST,
         seat_wind=Wind((seat - dealer) % 4),
-        is_tsumo=False,
+        is_tsumo=from_seat is None,
         dora_indicators=(parse_mpsz("1z")[0],),
         riichi_sticks=sticks,
     )
     result = score(hand, tile, context)
-    return GameWin(seat=seat, from_seat=2, winning_tile=tile, hand=hand, result=result, ura_indicators=())
+    return GameWin(
+        seat=seat,
+        from_seat=from_seat,
+        winning_tile=tile,
+        hand=hand,
+        result=result,
+        ura_indicators=(),
+        liable_seat=liable,
+    )
 
 
 class TestBridgeInternals:
@@ -177,6 +216,64 @@ class TestBridgeInternals:
         paifu = paifu_from_records(records, preset("tenhou"))
         outcome = paifu.rounds[0].outcome
         assert isinstance(outcome, Ryuukyoku)
-        assert outcome.kind == "four_winds"
+        assert outcome.kind == "kaze4"  # the canonical record name, not the engine's
         assert outcome.deltas == ()
         assert outcome.tenpai == (False, False, False, False)
+
+    def test_nagashi_draw_gets_the_nagashi_record_kind(self) -> None:
+        records = [[self._deal_start(honba=0, deposits=0), GameRyuukyoku(kind=RyuukyokuKind.NAGASHI)]]
+        outcome = paifu_from_records(records, preset("tenhou")).rounds[0].outcome
+        assert isinstance(outcome, Ryuukyoku)
+        assert outcome.kind == "nm"
+
+    def test_custom_rules_match_no_preset(self) -> None:
+        records = [[self._deal_start(honba=0, deposits=0), GameRyuukyoku(kind=RyuukyokuKind.FOUR_WINDS)]]
+        paifu = paifu_from_records(records, Rules(kiriage_mangan=True))
+        assert paifu.preset is None
+
+    def test_no_deals_settle_no_standing(self) -> None:
+        assert paifu_from_records([], preset("tenhou")).final_scores is None
+
+    def _pao_double_ron_records(self) -> list[list]:
+        won_tile = parse_mpsz("2m")[0]
+        return [
+            [
+                self._deal_start(honba=1, deposits=0),
+                GameDraw(2, won_tile),
+                GameDiscard(2, won_tile),
+                _win("234m345p567p234s88s", "2m", seat=0, dealer=0, liable=3),
+                _win("234m345p567p234s88s", "2m", seat=1, dealer=0),
+                ScoreChange((3900, 3900, -7800, 0), (28900, 28900, 17200, 25000)),
+            ]
+        ]
+
+    def test_pao_ron_reconstruction_splits_base_and_honba_to_liable(self) -> None:
+        first = paifu_from_records(self._pao_double_ron_records(), preset("tenhou")).rounds[0].outcome[0]
+        assert first.liable_seat == 3
+        value = first.value
+        assert first.deltas[0] == value + _HONBA_RON_BONUS
+        # Tenhou rules: the liable seat pays half the base and the whole honba.
+        assert first.deltas[3] == -(value // 2) - _HONBA_RON_BONUS
+        assert first.deltas[2] == -(value - value // 2)
+
+    def test_pao_ron_reconstruction_gives_honba_to_the_discarder_when_ruled(self) -> None:
+        rules = Rules(pao_honba_to_liable=False)
+        first = paifu_from_records(self._pao_double_ron_records(), rules).rounds[0].outcome[0]
+        value = first.value
+        assert first.deltas[3] == -(value // 2)
+        assert first.deltas[2] == -(value - value // 2) - _HONBA_RON_BONUS
+
+    def test_pao_tsumo_reconstruction_charges_the_liable_alone(self) -> None:
+        won_tile = parse_mpsz("2m")[0]
+        records = [
+            [
+                self._deal_start(honba=0, deposits=0),
+                GameDraw(0, won_tile),
+                _win("234m345p567p234s88s", "2m", seat=0, dealer=0, from_seat=None, liable=2),
+            ]
+        ]
+        agari = paifu_from_records(records, preset("tenhou")).rounds[0].outcome[0]
+        assert agari.liable_seat == 2
+        assert agari.deltas[1] == 0
+        assert agari.deltas[3] == 0
+        assert agari.deltas[2] == -agari.deltas[0]

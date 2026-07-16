@@ -326,7 +326,7 @@ def _agari(
     first: bool,
 ) -> Agari:
     """One win from an `agari` detail array."""
-    winner, from_seat = detail[0], detail[1]
+    winner, from_seat, pao = detail[0], detail[1], detail[2]
     is_tsumo = winner == from_seat
     winning_tile = last_drawn[winner] if is_tsumo else last_discard
     if winning_tile is None:
@@ -342,6 +342,7 @@ def _agari(
         deltas=deltas,
         fu=_parse_score_fu(detail[3]),
         value=_value_from_deltas(deltas, winner, honba, rules),
+        liable_seat=pao if pao != winner else None,  # the slot repeats the winner when no pao applied
     )
 
 
@@ -508,5 +509,6 @@ def _dump_result(outcome: tuple[Agari, ...] | Ryuukyoku) -> list:
         result.append(list(agari.deltas))
         # The Japanese score string carries fu; without the han total it cannot be
         # rebuilt, so it is left empty and the value is recovered from the deltas.
-        result.append([agari.winner, agari.from_seat, agari.winner, ""])
+        pao = agari.liable_seat if agari.liable_seat is not None else agari.winner
+        result.append([agari.winner, agari.from_seat, pao, ""])
     return result
