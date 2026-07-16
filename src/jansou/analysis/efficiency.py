@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from jansou.analysis.shanten import shanten_counts
+from jansou.analysis.shanten import discard_shantens, draw_shantens, shanten_counts
 from jansou.core.tiles import TILES_PER_KIND, TileKind, counts_by_kind, kinds_in_play
 
 if TYPE_CHECKING:
@@ -70,17 +70,13 @@ def acceptance_counts(
     """
     visible = visible or [0] * len(concealed)
     base = shanten_counts(concealed, num_melds)
-    result: dict[TileKind, int] = {}
-    for kind in kinds_in_play(player_count):
-        remaining = _remaining(kind, concealed, visible)
-        if remaining <= 0:
-            continue
-        concealed[kind] += 1
-        improved = shanten_counts(concealed, num_melds) < base
-        concealed[kind] -= 1
-        if improved:
-            result[kind] = remaining
-    return result
+    drawable = {
+        kind: remaining
+        for kind in kinds_in_play(player_count)
+        if (remaining := _remaining(kind, concealed, visible)) > 0
+    }
+    after = draw_shantens(concealed, num_melds, drawable)
+    return {kind: remaining for kind, remaining in drawable.items() if after[kind] < base}
 
 
 def acceptance(hand: Hand, *, visible: list[int] | None = None, player_count: int = 4) -> dict[TileKind, int]:
@@ -133,15 +129,14 @@ def discard_evaluation(
     num_melds = len(hand.melds)
     if sum(concealed) not in _POST_DRAW_SIZES:
         raise ValueError(f"discard evaluation needs a post-draw hand, got {sum(concealed)} concealed tiles")
+    candidates = [kind for kind in kinds_in_play(player_count) if concealed[kind]]
+    shantens = discard_shantens(concealed, num_melds, candidates)
     options: list[DiscardOption] = []
-    for kind in kinds_in_play(player_count):
-        if concealed[kind] == 0:
-            continue
+    for kind in candidates:
         concealed[kind] -= 1
-        result_shanten = shanten_counts(concealed, num_melds)
         accepts = acceptance_counts(concealed, num_melds, visible=visible, player_count=player_count)
         concealed[kind] += 1
-        options.append(DiscardOption(kind, result_shanten, accepts, sum(accepts.values())))
+        options.append(DiscardOption(kind, shantens[kind], accepts, sum(accepts.values())))
     options.sort(key=lambda option: (option.shanten, -option.total_acceptance, option.discard))
     return options
 
@@ -177,26 +172,27 @@ def improvements(
         # The widest same-shanten acceptance reachable by one discard, if it beats the base.
         best_acc: dict[TileKind, int] | None = None
         best_total = base_total
-        for discard in kinds_in_play(player_count):
-            if concealed[discard] == 0:
+        held = [kind for kind in kinds_in_play(player_count) if concealed[kind]]
+        for discard, after in discard_shantens(concealed, num_melds, held).items():
+            if after != base:
                 continue
             concealed[discard] -= 1
-            if shanten_counts(concealed, num_melds) == base:
-                accepts = acceptance_counts(concealed, num_melds, visible=visible, player_count=player_count)
-                total = sum(accepts.values())
-                if total > best_total:
-                    best_total, best_acc = total, accepts
+            accepts = acceptance_counts(concealed, num_melds, visible=visible, player_count=player_count)
             concealed[discard] += 1
+            total = sum(accepts.values())
+            if total > best_total:
+                best_total, best_acc = total, accepts
         return best_acc
 
+    outside = visible or [0] * len(concealed)
+    drawable = [kind for kind in kinds_in_play(player_count) if _remaining(kind, concealed, outside) > 0]
     result: dict[TileKind, dict[TileKind, int]] = {}
-    for draw in kinds_in_play(player_count):
-        if _remaining(draw, concealed, visible or [0] * len(concealed)) <= 0:
+    for draw, after in draw_shantens(concealed, num_melds, drawable).items():
+        if after != base:
             continue
         concealed[draw] += 1
-        if shanten_counts(concealed, num_melds) == base:
-            best = best_upgrade()
-            if best is not None:
-                result[draw] = best
+        best = best_upgrade()
         concealed[draw] -= 1
+        if best is not None:
+            result[draw] = best
     return result

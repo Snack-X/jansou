@@ -7,8 +7,8 @@ import random
 import pytest
 
 from jansou.analysis.decompose import is_complete
+from jansou.analysis.shanten import _block_options, discard_shantens, draw_shantens, is_tenpai, shanten, shanten_counts
 from jansou.analysis.shanten import is_complete as hand_complete
-from jansou.analysis.shanten import is_tenpai, shanten, shanten_counts
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
 from jansou.core.tiles import NUM_KINDS, TILES_PER_KIND, YAOCHUU_KINDS, counts_by_kind
@@ -219,3 +219,115 @@ class TestAgainstBruteForce:
             assert fast == brute_shanten(c, 0, cap=1)
             checked += 1
         assert checked > 100
+
+
+def _reference_shanten_counts(c: list[int], num_melds: int) -> int:
+    """The pre-table algorithm, kept verbatim as the equivalence oracle."""
+    states = {(0, 0, 0)}
+    for start, stop in ((0, 9), (9, 18), (18, 27), (27, 34)):
+        options = _block_options(tuple(c[start:stop]), is_honor=start == 27)
+        states = {(s + bs, p + bp, h + bh) for s, p, h in states for bs, bp, bh in options if h + bh <= 1}
+    best = 8
+    for s, p, h in states:
+        total_sets = s + num_melds
+        best = min(best, 8 - 2 * total_sets - min(p, 4 - total_sets) - h)
+    if num_melds == 0 and sum(c) in (13, 14):
+        pairs = sum(1 for x in c if x >= 2)
+        kinds = sum(1 for x in c if x)
+        present = sum(1 for k in YAOCHUU_KINDS if c[k])
+        has_pair = any(c[k] >= 2 for k in YAOCHUU_KINDS)
+        best = min(best, 6 - pairs + max(0, 7 - kinds), 13 - present - (1 if has_pair else 0))
+    return best
+
+
+def _random_hands(rng: random.Random, n: int) -> list[tuple[list[int], int]]:
+    """Random legal hands across meld counts, sizes, and skewed tile families."""
+    pools = (
+        list(range(NUM_KINDS)),  # anything
+        [*range(9), *range(27, 34)],  # one suit plus honors: run-heavy and chuuren-like
+        [k for k in range(NUM_KINDS) if k in YAOCHUU_KINDS],  # terminals and honors: kokushi-like
+    )
+    hands = []
+    for _ in range(n):
+        num_melds = rng.randrange(5)
+        total = 13 - 3 * num_melds + rng.randrange(2)
+        pool = rng.choice(pools)
+        c = [0] * NUM_KINDS
+        if rng.randrange(2):  # pair-heavy start toward chiitoi shapes
+            for k in rng.sample(pool, min(total // 2, len(pool))):
+                c[k] = 2
+        while sum(c) > total:
+            k = rng.choice([k for k in range(NUM_KINDS) if c[k]])
+            c[k] -= 1
+        while sum(c) < total:
+            k = rng.choice(pool)
+            if c[k] < TILES_PER_KIND:
+                c[k] += 1
+        hands.append((c, num_melds))
+    return hands
+
+
+class TestPackedEquivalence:
+    """The packed-table combination reproduces the original search, bit for bit."""
+
+    def test_matches_the_reference_on_random_hands(self) -> None:
+        for c, num_melds in _random_hands(random.Random(5), 4000):
+            assert shanten_counts(c, num_melds) == _reference_shanten_counts(c, num_melds), (c, num_melds)
+
+
+class TestDrawShantens:
+    def test_matches_per_kind_probes(self) -> None:
+        rng = random.Random(6)
+        for c, num_melds in _random_hands(rng, 600):
+            if sum(c) != 13 - 3 * num_melds:  # probes draw onto a resting hand
+                continue
+            kinds = [k for k in range(NUM_KINDS) if c[k] < TILES_PER_KIND]
+            probed = draw_shantens(c, num_melds, kinds)
+            for k in kinds:
+                c[k] += 1
+                expected = shanten_counts(c, num_melds)
+                c[k] -= 1
+                assert probed[k] == expected, (c, num_melds, k)
+
+    def test_probing_nothing_returns_nothing(self) -> None:
+        assert draw_shantens(counts("123456789m1234z"), 0, ()) == {}
+
+    def test_rejects_a_probe_past_the_holding_size(self) -> None:
+        with pytest.raises(ValueError, match="concealed tiles"):
+            draw_shantens(counts("123456789m12345z"), 0, [0])
+
+    def test_chiitoi_probe_completes_the_seventh_pair(self) -> None:
+        c = counts("1188m2299p3355s6z")
+        assert draw_shantens(c, 0, [32]) == {32: -1}  # the 6z pair completes seven pairs
+
+    def test_kokushi_probes_cover_both_kind_families(self) -> None:
+        c = counts("19m19p1s11234567z")
+        probed = draw_shantens(c, 0, [26, 4])
+        assert probed[26] == -1  # 9s fills the missing orphan
+        assert probed[4] == 0  # 5m does not help: still one exchange from thirteen orphans
+
+
+class TestDiscardShantens:
+    def test_matches_per_kind_probes(self) -> None:
+        rng = random.Random(7)
+        for c, num_melds in _random_hands(rng, 600):
+            if sum(c) != 14 - 3 * num_melds:  # probes discard from a holding hand
+                continue
+            kinds = [k for k in range(NUM_KINDS) if c[k]]
+            probed = discard_shantens(c, num_melds, kinds)
+            for k in kinds:
+                c[k] -= 1
+                expected = shanten_counts(c, num_melds)
+                c[k] += 1
+                assert probed[k] == expected, (c, num_melds, k)
+
+    def test_rejects_a_kind_the_hand_does_not_hold(self) -> None:
+        with pytest.raises(ValueError, match="holds none"):
+            discard_shantens(counts("123456789m12345z"), 0, [26])
+
+    def test_rejects_a_probe_below_the_resting_size(self) -> None:
+        with pytest.raises(ValueError, match="concealed tiles"):
+            discard_shantens(counts("123456789m1234z"), 0, [0])
+
+    def test_probing_nothing_returns_nothing(self) -> None:
+        assert discard_shantens(counts("123456789m12345z"), 0, ()) == {}

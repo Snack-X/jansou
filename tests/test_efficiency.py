@@ -32,6 +32,12 @@ class TestAcceptance:
         visible[TileKind.M2] = 4  # all 2m accounted for
         assert TileKind.M2 not in acceptance(hand, visible=visible)
 
+    def test_rejects_a_post_draw_hand(self) -> None:
+        # Acceptance draws onto a resting hand; probing past the holding size is an error.
+        hand = Hand(tuple(parse_mpsz("34555m567p789s223s")))
+        with pytest.raises(ValueError, match="concealed tiles"):
+            acceptance(hand)
+
 
 class TestDiscardEvaluation:
     def test_orders_by_shanten_then_acceptance(self) -> None:
