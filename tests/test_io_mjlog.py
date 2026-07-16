@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from jansou.io.mjlog import MjlogError, parse_mjlog
+from jansou.io.paifu import settled_final_scores
 from jansou.validation.check import check_paifu
 
 
@@ -27,6 +28,18 @@ class TestRealLogs:
 
     def test_three_player_wins_score_as_recorded(self, dataset: Path) -> None:
         self._check_all(_sample(dataset, "mjlog/data/*/*gm-00b9-*.xml", 40))
+
+    def test_final_scores_settle_from_the_rounds(self, dataset: Path) -> None:
+        # The log's own owari standing is the oracle for the settlement path
+        # MJAI sources rely on. Zero tolerance: any mismatch is a bug.
+        checked = 0
+        for path in _sample(dataset, "mjlog/data/*/*.xml", 200):
+            paifu = parse_mjlog(path)
+            if paifu.final_scores is None:
+                continue
+            assert settled_final_scores(paifu.rounds, paifu.rules) == paifu.final_scores, path.name
+            checked += 1
+        assert checked > 0
 
     @staticmethod
     def _check_all(files: list[Path]) -> None:

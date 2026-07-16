@@ -10,10 +10,12 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
+from itertools import pairwise
+
 from jansou.core.tiles import Tile, TileKind
 from jansou.game.actions import NineTerminals
 from jansou.io.mjai import MjaiError, parse_mjai
-from jansou.io.paifu import Kita, Ryuukyoku
+from jansou.io.paifu import Kita, Ryuukyoku, leftover_deposits, settled_scores
 from jansou.io.replay import replay_round_decisions
 from jansou.validation.check import check_paifu
 
@@ -24,6 +26,17 @@ class TestRealLogs:
 
     def test_three_player_wins_score_as_recorded(self, dataset: Path) -> None:
         self._check_all(sorted(dataset.glob("mjai/data/3p/*.jsonl.gz")))
+
+    def test_round_scores_chain_through_every_game(self, dataset: Path) -> None:
+        # Each round's recorded start scores and deposit count must equal the
+        # previous round's settlement -- the invariant the final standing rides on.
+        files = sorted(dataset.glob("mjai/data/4p/*.jsonl")) + sorted(dataset.glob("mjai/data/3p/*.jsonl.gz"))
+        if not files:
+            pytest.skip("no mjai files present")
+        for path in files:
+            for current, following in pairwise(parse_mjai(path).rounds):
+                assert settled_scores(current) == following.scores, path.name
+                assert leftover_deposits(current) == following.riichi_sticks, path.name
 
     @staticmethod
     def _check_all(files: list[Path]) -> None:
@@ -78,6 +91,25 @@ class TestParsing:
     def test_stream_without_start_kyoku_rejected(self) -> None:
         with pytest.raises(MjaiError, match="start_kyoku"):
             parse_mjai(_stream(_START, _END_GAME))
+
+    def test_final_scores_settled_from_the_rounds(self) -> None:
+        text = _stream(_START, _START_KYOKU, _TSUMO, _HORA_TSUMO, _END_KYOKU, _END_GAME)
+        paifu = parse_mjai(text)
+        assert paifu.final_scores == (26500, 24500, 24500, 24500)
+        assert paifu.final_points is None
+
+    def test_final_scores_award_leftover_deposits_to_first(self) -> None:
+        # Seat 0's riichi deposit is still on the table at game end; Tenhou
+        # rules send it to the first place, seat 1 on the tie-break.
+        reach = '{"type":"reach","actor":0}'
+        dahai = '{"type":"dahai","actor":0,"pai":"2m","tsumogiri":false}'
+        draw = '{"type":"ryukyoku","reason":"exhaustive_draw","deltas":[0,0,0,0]}'
+        text = _stream(_START, _START_KYOKU, _TSUMO, reach, dahai, draw, _END_KYOKU, _END_GAME)
+        assert parse_mjai(text).final_scores == (24000, 26000, 25000, 25000)
+
+    def test_truncated_stream_settles_no_final_scores(self) -> None:
+        # A start_kyoku without its end_kyoku parses to no rounds, and no standing.
+        assert parse_mjai(_stream(_START, _START_KYOKU, _TSUMO)).final_scores is None
 
     def test_ryukyoku_round_has_no_wins(self) -> None:
         draw = '{"type":"ryukyoku","reason":"exhaustive_draw","deltas":[0,0,0,0],"tehais":[["1m"],null,null,null]}'

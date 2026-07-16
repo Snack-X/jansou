@@ -5,23 +5,35 @@ from __future__ import annotations
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.rules import Rules
 from jansou.core.tiles import Tile, TileKind, Wind
-from jansou.io.paifu import Agari, Call, Draw, Paifu, RoundLog, Ryuukyoku, replay_round
+from jansou.io.paifu import (
+    Agari,
+    Call,
+    Discard,
+    Draw,
+    Paifu,
+    RoundLog,
+    Ryuukyoku,
+    leftover_deposits,
+    replay_round,
+    settled_final_scores,
+    settled_scores,
+)
 
 
 def _t(name: str) -> Tile:
     return Tile(TileKind[name])
 
 
-def _round(outcome, hands=None) -> RoundLog:
+def _round(outcome, hands=None, events=(), riichi_sticks=0) -> RoundLog:
     return RoundLog(
         round_wind=Wind.EAST,
         dealer=0,
         honba=0,
-        riichi_sticks=0,
+        riichi_sticks=riichi_sticks,
         initial_dora=_t("S9"),
         scores=(25000, 25000, 25000, 25000),
         hands=hands or ((), (), (), ()),
-        events=(),
+        events=events,
         outcome=outcome,
     )
 
@@ -143,3 +155,62 @@ class TestPaifu:
         paifu = Paifu(rules=Rules(), player_count=4, rounds=(_round(Ryuukyoku()),))
         assert paifu.player_count == 4
         assert len(paifu.rounds) == 1
+
+
+class TestScoreChain:
+    def test_banked_riichi_and_draw_deltas_settle_the_scores(self) -> None:
+        # Seat 0's riichi survived the ron window, so its deposit joins the pool.
+        round_log = _round(
+            Ryuukyoku(deltas=(1500, 1500, 1500, -4500)),
+            events=(Draw(0, _t("P1")), Discard(0, _t("P1"), riichi=True)),
+        )
+        assert settled_scores(round_log) == (25500, 26500, 26500, 20500)
+        assert leftover_deposits(round_log) == 1
+
+    def test_a_win_sweeps_the_pool(self) -> None:
+        # A multiple ron: every winner's deltas apply, and no deposit is left.
+        first = Agari(winner=1, from_seat=0, winning_tile=_t("M1"), deltas=(-10000, 12000, 0, 0))
+        second = Agari(winner=2, from_seat=0, winning_tile=_t("M1"), deltas=(-3900, 0, 3900, 0))
+        round_log = _round((first, second), riichi_sticks=2)
+        assert settled_scores(round_log) == (11100, 37000, 28900, 25000)
+        assert leftover_deposits(round_log) == 0
+
+    def test_a_ronned_riichi_discard_never_banks(self) -> None:
+        events = (Discard(1, _t("M1"), riichi=True),)
+        outcome = (Agari(winner=0, from_seat=1, winning_tile=_t("M1"), deltas=(3900, -3900, 0, 0)),)
+        assert settled_scores(_round(outcome, events=events)) == (28900, 21100, 25000, 25000)
+
+    def test_a_triple_ronned_riichi_discard_never_banks(self) -> None:
+        events = (Discard(2, _t("M1"), riichi=True),)
+        round_log = _round(Ryuukyoku(kind="ron3"), events=events, riichi_sticks=1)
+        assert settled_scores(round_log) == (25000, 25000, 25000, 25000)
+        assert leftover_deposits(round_log) == 1
+
+    def test_riichi_banked_before_a_later_ron(self) -> None:
+        # Seat 1's riichi discard passed; the win rides a later plain discard.
+        events = (Discard(1, _t("M1"), riichi=True), Discard(3, _t("M2")))
+        outcome = (Agari(winner=1, from_seat=3, winning_tile=_t("M2"), deltas=(0, 9000, 0, -8000)),)
+        assert settled_scores(_round(outcome, events=events)) == (25000, 33000, 25000, 17000)
+
+    def test_riichi_banked_before_a_tsumo(self) -> None:
+        events = (Discard(1, _t("M1"), riichi=True), Draw(0, _t("M9")))
+        outcome = (Agari(winner=0, from_seat=0, winning_tile=_t("M9"), deltas=(5000, -2000, -1000, -1000)),)
+        assert settled_scores(_round(outcome, events=events)) == (30000, 22000, 24000, 24000)
+
+    def test_settled_final_scores_award_leftover_deposits_to_first(self) -> None:
+        last = _round(
+            Ryuukyoku(deltas=(0, 0, 0, 0)),
+            events=(Discard(0, _t("M1"), riichi=True),),
+            riichi_sticks=1,
+        )
+        # Two sticks are left on the table; the rule sends them to seat 1, the first place.
+        rules = Rules(leftover_deposits_to_first=True)
+        assert settled_final_scores((last,), rules) == (24000, 27000, 25000, 25000)
+
+    def test_settled_final_scores_discard_leftover_deposits_otherwise(self) -> None:
+        last = _round(
+            Ryuukyoku(deltas=(0, 0, 0, 0)),
+            events=(Discard(0, _t("M1"), riichi=True),),
+            riichi_sticks=1,
+        )
+        assert settled_final_scores((last,), Rules()) == (24000, 25000, 25000, 25000)

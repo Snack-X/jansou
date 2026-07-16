@@ -4,7 +4,8 @@ One JSON object per line, in play order. A win (`hora`) here carries neither
 the winning hand nor the score breakdown, so both are recovered from the
 stream: the hand by replaying the winner's draws, discards, and calls, the
 winning tile from the last draw or discard, and the win value from the winner
-side of the recorded score deltas.
+side of the recorded score deltas. The format states no final standing either,
+so it is settled from the last round under the rules.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from jansou.io.paifu import (
     Paifu,
     RoundLog,
     Ryuukyoku,
+    settled_final_scores,
 )
 
 _WIND_OF_NAME = {"E": Wind.EAST, "S": Wind.SOUTH, "W": Wind.WEST, "N": Wind.NORTH}
@@ -67,7 +69,13 @@ def parse_mjai(source: str | Path | bytes) -> Paifu:
         raise MjaiError("MJAI stream has no start_kyoku")
     player_count = len(start["tehais"])
     rules = preset("tenhou-3p") if player_count == 3 else preset("tenhou")
-    return Paifu(rules=rules, player_count=player_count, rounds=tuple(_parse_rounds(events, rules)))
+    rounds = tuple(_parse_rounds(events, rules))
+    return Paifu(
+        rules=rules,
+        player_count=player_count,
+        rounds=rounds,
+        final_scores=settled_final_scores(rounds, rules) if rounds else None,
+    )
 
 
 def _read(source: str | Path | bytes) -> str:

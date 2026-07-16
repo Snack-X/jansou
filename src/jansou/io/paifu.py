@@ -16,7 +16,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from jansou.core.hand import FULL_HAND_SIZE, Hand, Meld, MeldType
+from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.core.tiles import Tile, TileKind, Wind
+from jansou.game.progression import settle_deposits
 from jansou.game.wall import DEAD_WALL_SIZE
 from jansou.scoring.context import WinContext
 
@@ -157,6 +159,12 @@ Outcome = tuple[Agari, ...] | Ryuukyoku
 class RoundLog:
     """One round: its opening state, its events, and how it ended.
 
+    Consecutive rounds of one game chain: each round's ``scores`` equals the
+    previous round's settled scores (``settled_scores``), and its
+    ``riichi_sticks`` the deposits the previous round left on the table
+    (``leftover_deposits``) -- across wins, draws, multiple ron, and the
+    three-player game alike.
+
     Attributes:
         round_wind: The prevailing wind of the round.
         dealer: The seat sitting as dealer.
@@ -188,8 +196,9 @@ class Paifu:
         rules: The rules configuration the game was played under.
         player_count: The number of seats (three or four).
         rounds: The rounds played, in order.
-        final_scores: The final standing in points the log states outright,
-            per seat, or ``None`` when the source carries no standing.
+        final_scores: The final standing in points per seat: the standing the
+            log states outright, or one settled from the rounds when the
+            format carries none (MJAI); ``None`` when neither is available.
         final_points: The platform's adjusted result per seat (Tenhou's uma
             column), or ``None`` when the source carries no standing.
     """
@@ -224,6 +233,90 @@ class AgariRecord:
     expected_fu: int | None
     expected_value: int | None
     expected_deltas: tuple[int, ...]
+
+
+# --- Score chain --------------------------------------------------------------
+
+#: The names the formats give a triple-ron abort.
+_TRIPLE_RON_KINDS = frozenset({"ron3", "triple_ron", "sanchahou", "三家和", "三家和了"})
+
+
+def _banked_riichi_seats(round_log: RoundLog) -> list[int]:
+    """Seats whose riichi deposit was banked during the round.
+
+    Every riichi-declaring discard banks its deposit once it survives the ron
+    window; one the round ends on -- taken by a winner, or by the three rons
+    of a triple-ron abort -- never completes, and never pays.
+    """
+    declared = [event.seat for event in round_log.events if isinstance(event, Discard) and event.riichi]
+    outcome = round_log.outcome
+    ends_on_ron = not isinstance(outcome, Ryuukyoku) or outcome.kind in _TRIPLE_RON_KINDS
+    last = round_log.events[-1] if round_log.events else None
+    if ends_on_ron and isinstance(last, Discard) and last.riichi:
+        declared.remove(last.seat)
+    return declared
+
+
+def settled_scores(round_log: RoundLog) -> tuple[int, ...]:
+    """Each seat's score when the round ends.
+
+    The start-of-round ``scores``, less each riichi deposit banked during the
+    round, plus the outcome's recorded deltas (which already carry the honba
+    and the deposits a win sweeps). Within one game this equals the next
+    round's ``scores``.
+
+    Args:
+        round_log: The round to settle.
+
+    Returns:
+        Each seat's score after the round.
+    """
+    scores = list(round_log.scores)
+    for seat in _banked_riichi_seats(round_log):
+        scores[seat] -= RIICHI_DEPOSIT
+    outcome = round_log.outcome
+    for deltas in [outcome.deltas] if isinstance(outcome, Ryuukyoku) else [agari.deltas for agari in outcome]:
+        for seat, delta in enumerate(deltas):
+            scores[seat] += delta
+    return tuple(scores)
+
+
+def leftover_deposits(round_log: RoundLog) -> int:
+    """The riichi deposits still on the table when the round ends.
+
+    A win sweeps every deposit; a draw carries the pool forward, grown by the
+    riichi banked during the round. Within one game this equals the next
+    round's ``riichi_sticks``.
+
+    Args:
+        round_log: The round to settle.
+
+    Returns:
+        The number of deposits left on the table.
+    """
+    if isinstance(round_log.outcome, Ryuukyoku):
+        return round_log.riichi_sticks + len(_banked_riichi_seats(round_log))
+    return 0
+
+
+def settled_final_scores(rounds: tuple[RoundLog, ...], rules: Rules) -> tuple[int, ...]:
+    """The final standing settled from a game's rounds.
+
+    The last round's settled scores, plus the end-of-game deposit settlement
+    the rule set prescribes (leftover deposits to first place where the rule
+    says so). For a source whose log states no standing outright, this is the
+    game's ``final_scores``.
+
+    Args:
+        rounds: The game's rounds, in order; must be non-empty.
+        rules: The rule set governing the end-of-game settlement.
+
+    Returns:
+        Each seat's final score.
+    """
+    last = rounds[-1]
+    pool = leftover_deposits(last) * RIICHI_DEPOSIT
+    return tuple(settle_deposits(list(settled_scores(last)), pool, rules))
 
 
 # --- Replay -----------------------------------------------------------------
