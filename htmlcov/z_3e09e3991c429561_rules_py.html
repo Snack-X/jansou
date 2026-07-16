@@ -55,8 +55,8 @@
             </div>
         </aside>
         <h2>
-            <span class="text">85 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">85<span class="text"> run</span></button>
+            <span class="text">87 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">87<span class="text"> run</span></button>
             <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">0<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
             <button type="button" class="par run show_par button_toggle_par" value="par" data-shortcut="p" title="Toggle lines partially run">0<span class="text"> partial</span></button>
@@ -67,7 +67,7 @@
             <a id="nextFileLink" class="nav" href="z_3e09e3991c429561_tiles_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-07-15 16:40 +0000
+            created at 2026-07-16 10:51 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -408,23 +408,35 @@
     <p class="run run2"><span class="n"><a id="t324" href="#t324">324</a></span><span class="t"><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t325" href="#t325">325</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t326" href="#t326">326</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t327" href="#t327">327</a></span><span class="t"><span class="key">def</span> <span class="nam">preset</span><span class="op">(</span><span class="nam">name</span><span class="op">:</span> <span class="nam">str</span><span class="op">)</span> <span class="op">-></span> <span class="nam">Rules</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t328" href="#t328">328</a></span><span class="t">    <span class="str">"""The named preset configuration.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t327" href="#t327">327</a></span><span class="t"><span class="key">def</span> <span class="nam">preset_name_of</span><span class="op">(</span><span class="nam">rules</span><span class="op">:</span> <span class="nam">Rules</span><span class="op">)</span> <span class="op">-></span> <span class="nam">str</span> <span class="op">|</span> <span class="key">None</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t328" href="#t328">328</a></span><span class="t">    <span class="str">"""The name of the preset a configuration equals, or None for a custom one.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t329" href="#t329">329</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t330" href="#t330">330</a></span><span class="t"><span class="str">    Args:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t331" href="#t331">331</a></span><span class="t"><span class="str">        name: The preset name, one of the keys of ``PRESETS``.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t331" href="#t331">331</a></span><span class="t"><span class="str">        rules: The configuration to look up.</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t332" href="#t332">332</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t333" href="#t333">333</a></span><span class="t"><span class="str">    Returns:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t334" href="#t334">334</a></span><span class="t"><span class="str">        The ``Rules`` for that preset.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t335" href="#t335">335</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t336" href="#t336">336</a></span><span class="t"><span class="str">    Raises:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t337" href="#t337">337</a></span><span class="t"><span class="str">        ValueError: If ``name`` is not a known preset.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t338" href="#t338">338</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t339" href="#t339">339</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t340" href="#t340">340</a></span><span class="t">        <span class="key">return</span> <span class="nam">PRESETS</span><span class="op">[</span><span class="nam">name</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t341" href="#t341">341</a></span><span class="t">    <span class="key">except</span> <span class="nam">KeyError</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t342" href="#t342">342</a></span><span class="t">        <span class="nam">known</span> <span class="op">=</span> <span class="str">", "</span><span class="op">.</span><span class="nam">join</span><span class="op">(</span><span class="nam">sorted</span><span class="op">(</span><span class="nam">PRESETS</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t343" href="#t343">343</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="fst">f"</span><span class="fst">unknown preset </span><span class="op">{</span><span class="nam">name</span><span class="op">!</span><span class="nam">r</span><span class="op">}</span><span class="fst">; known presets: </span><span class="op">{</span><span class="nam">known</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span> <span class="key">from</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t334" href="#t334">334</a></span><span class="t"><span class="str">        The matching preset name, or ``None`` when no preset equals it.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t335" href="#t335">335</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t336" href="#t336">336</a></span><span class="t">    <span class="key">return</span> <span class="nam">next</span><span class="op">(</span><span class="op">(</span><span class="nam">name</span> <span class="key">for</span> <span class="nam">name</span><span class="op">,</span> <span class="nam">config</span> <span class="key">in</span> <span class="nam">PRESETS</span><span class="op">.</span><span class="nam">items</span><span class="op">(</span><span class="op">)</span> <span class="key">if</span> <span class="nam">config</span> <span class="op">==</span> <span class="nam">rules</span><span class="op">)</span><span class="op">,</span> <span class="key">None</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t337" href="#t337">337</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t338" href="#t338">338</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t339" href="#t339">339</a></span><span class="t"><span class="key">def</span> <span class="nam">preset</span><span class="op">(</span><span class="nam">name</span><span class="op">:</span> <span class="nam">str</span><span class="op">)</span> <span class="op">-></span> <span class="nam">Rules</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t340" href="#t340">340</a></span><span class="t">    <span class="str">"""The named preset configuration.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t341" href="#t341">341</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t342" href="#t342">342</a></span><span class="t"><span class="str">    Args:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t343" href="#t343">343</a></span><span class="t"><span class="str">        name: The preset name, one of the keys of ``PRESETS``.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t344" href="#t344">344</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t345" href="#t345">345</a></span><span class="t"><span class="str">    Returns:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t346" href="#t346">346</a></span><span class="t"><span class="str">        The ``Rules`` for that preset.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t347" href="#t347">347</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t348" href="#t348">348</a></span><span class="t"><span class="str">    Raises:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t349" href="#t349">349</a></span><span class="t"><span class="str">        ValueError: If ``name`` is not a known preset.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t350" href="#t350">350</a></span><span class="t"><span class="str">    """</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t351" href="#t351">351</a></span><span class="t">    <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t352" href="#t352">352</a></span><span class="t">        <span class="key">return</span> <span class="nam">PRESETS</span><span class="op">[</span><span class="nam">name</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t353" href="#t353">353</a></span><span class="t">    <span class="key">except</span> <span class="nam">KeyError</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t354" href="#t354">354</a></span><span class="t">        <span class="nam">known</span> <span class="op">=</span> <span class="str">", "</span><span class="op">.</span><span class="nam">join</span><span class="op">(</span><span class="nam">sorted</span><span class="op">(</span><span class="nam">PRESETS</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t355" href="#t355">355</a></span><span class="t">        <span class="key">raise</span> <span class="nam">ValueError</span><span class="op">(</span><span class="fst">f"</span><span class="fst">unknown preset </span><span class="op">{</span><span class="nam">name</span><span class="op">!</span><span class="nam">r</span><span class="op">}</span><span class="fst">; known presets: </span><span class="op">{</span><span class="nam">known</span><span class="op">}</span><span class="fst">"</span><span class="op">)</span> <span class="key">from</span> <span class="key">None</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -434,7 +446,7 @@
             <a class="nav" href="z_3e09e3991c429561_tiles_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.14.3">coverage.py v7.14.3</a>,
-            created at 2026-07-15 16:40 +0000
+            created at 2026-07-16 10:51 +0000
         </p>
     </div>
 </footer>

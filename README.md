@@ -7,29 +7,29 @@
 | src/jansou/\_\_init\_\_.py            |        2 |        0 |        0 |        0 |     100% |           |
 | src/jansou/analysis/\_\_init\_\_.py   |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/analysis/decompose.py      |      119 |        0 |       30 |        0 |     100% |           |
-| src/jansou/analysis/efficiency.py     |       76 |        0 |       28 |        0 |     100% |           |
-| src/jansou/analysis/shanten.py        |       53 |        0 |        8 |        0 |     100% |           |
+| src/jansou/analysis/efficiency.py     |       68 |        0 |       16 |        0 |     100% |           |
+| src/jansou/analysis/shanten.py        |       82 |        0 |       26 |        0 |     100% |           |
 | src/jansou/analysis/waits.py          |       11 |        0 |        0 |        0 |     100% |           |
 | src/jansou/core/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/core/hand.py               |      103 |        0 |       38 |        0 |     100% |           |
 | src/jansou/core/notation.py           |       95 |        0 |       46 |        0 |     100% |           |
-| src/jansou/core/rules.py              |       85 |        0 |       10 |        0 |     100% |           |
+| src/jansou/core/rules.py              |       87 |        0 |       10 |        0 |     100% |           |
 | src/jansou/core/tiles.py              |      171 |        0 |       24 |        0 |     100% |           |
 | src/jansou/game/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/game/actions.py            |      284 |        0 |       92 |        0 |     100% |           |
 | src/jansou/game/agents.py             |      204 |        0 |       64 |        0 |     100% |           |
 | src/jansou/game/environment.py        |       57 |        0 |       10 |        0 |     100% |           |
-| src/jansou/game/events.py             |       76 |        0 |        2 |        0 |     100% |           |
-| src/jansou/game/flow.py               |      526 |        0 |      170 |        0 |     100% |           |
+| src/jansou/game/events.py             |       78 |        0 |        2 |        0 |     100% |           |
+| src/jansou/game/flow.py               |      527 |        0 |      170 |        0 |     100% |           |
 | src/jansou/game/progression.py        |       63 |        0 |       26 |        0 |     100% |           |
 | src/jansou/game/state.py              |       75 |        0 |        6 |        0 |     100% |           |
 | src/jansou/game/wall.py               |       39 |        0 |        8 |        0 |     100% |           |
 | src/jansou/io/\_\_init\_\_.py         |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/io/from\_game.py           |       64 |        0 |       22 |        0 |     100% |           |
-| src/jansou/io/mjai.py                 |      138 |        0 |       52 |        0 |     100% |           |
-| src/jansou/io/mjlog.py                |      280 |        0 |       84 |        0 |     100% |           |
-| src/jansou/io/paifu.py                |      182 |        0 |       38 |        0 |     100% |           |
-| src/jansou/io/replay.py               |      221 |        0 |       78 |        0 |     100% |           |
+| src/jansou/io/mjai.py                 |      171 |        0 |       68 |        0 |     100% |           |
+| src/jansou/io/mjlog.py                |      283 |        0 |       86 |        0 |     100% |           |
+| src/jansou/io/paifu.py                |      201 |        0 |       42 |        0 |     100% |           |
+| src/jansou/io/replay.py               |      219 |        0 |       78 |        0 |     100% |           |
 | src/jansou/io/tenhou\_json.py         |      208 |        0 |       70 |        0 |     100% |           |
 | src/jansou/io/tiles.py                |       35 |        0 |       12 |        0 |     100% |           |
 | src/jansou/scoring/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |     100% |           |
@@ -40,7 +40,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **3830** |    **0** | **1130** |    **0** | **100%** |           |
+| **TOTAL**                             | **3909** |    **0** | **1158** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
