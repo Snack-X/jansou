@@ -65,7 +65,8 @@ class DealStart(Event):
     Each seat sees only its own dealt hand; the others are masked to None.
 
     Attributes:
-        deposits: Riichi sticks carried on the table into this deal.
+        deposits: Riichi deposit points carried on the table into this deal
+            (a points amount, not a stick count).
         hands: Each seat's dealt tiles, masked to ``None`` for the other seats.
         dora_indicator: The single dora indicator turned up at the start.
     """

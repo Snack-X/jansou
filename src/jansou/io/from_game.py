@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from jansou.core.hand import CallSource, Meld, MeldType
+from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.game.events import (
     Call as GameCall,
 )
@@ -115,7 +116,7 @@ def _round_from_events(events: list[Event], rules: Rules) -> RoundLog:
         round_wind=start.round_wind,
         dealer=start.dealer,
         honba=start.honba,
-        riichi_sticks=start.deposits,
+        riichi_sticks=start.deposits // RIICHI_DEPOSIT,  # the engine pools points; the record counts sticks
         initial_dora=start.dora_indicator,
         scores=tuple(start.scores),
         hands=tuple(tuple(hand) for hand in start.hands),  # recorded hands are unmasked
@@ -155,15 +156,16 @@ def _agari_of(win: GameWin, start: DealStart, settlement: ScoreChange | None, ru
     payment = win.result.payment
     value = payment.total - payment.honba - payment.sticks
     honba = start.honba if first else 0
+    pot = payment.sticks if first else 0  # the whole pool -- carried and banked this round -- rides the first winner
     single_win = settlement is not None and first and _is_only_win(settlement, win, rules.player_count)
-    deltas = tuple(settlement.deltas) if single_win else _reconstructed_deltas(win, start.dealer, honba, rules)
+    deltas = tuple(settlement.deltas) if single_win else _reconstructed_deltas(win, start.dealer, honba, rules, pot)
     return Agari(
         winner=win.seat,
         from_seat=win.seat if is_tsumo else win.from_seat,
         winning_tile=win.winning_tile,
         ura_indicators=tuple(win.ura_indicators),
         honba=honba,
-        riichi_sticks=start.deposits if first else 0,
+        riichi_sticks=pot // RIICHI_DEPOSIT,
         deltas=deltas,
         fu=win.result.fu.total,
         value=value,
@@ -177,8 +179,12 @@ def _is_only_win(settlement: ScoreChange, win: GameWin, player_count: int) -> bo
     return receivers == 1 and settlement.deltas[win.seat] > 0
 
 
-def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, rules: Rules) -> tuple[int, ...]:
-    """Per-winner deltas that reproduce the win value under a reader's honba rule."""
+def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, rules: Rules, pot: int) -> tuple[int, ...]:
+    """Per-winner deltas that reproduce the win value under a reader's honba rule.
+
+    The pot -- the deposit points this win sweeps off the table -- joins the
+    winner's gain with no paying seat, exactly as the engine settles it.
+    """
     payment = win.result.payment
     deltas = [0] * rules.player_count
     if win.from_seat is None:
@@ -193,4 +199,5 @@ def _reconstructed_deltas(win: GameWin, dealer: int, honba: int, rules: Rules) -
         total = payment.ron + rules.honba_per_counter * honba
         deltas[win.seat] += total
         deltas[win.from_seat] -= total
+    deltas[win.seat] += pot
     return tuple(deltas)
