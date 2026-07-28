@@ -4,4 +4,5 @@
 - jansou.analysis.shanten: distance to ready
 - jansou.analysis.waits: the tiles that complete a ready hand
 - jansou.analysis.efficiency: acceptance, discard evaluation, improvement tiles
+- jansou.analysis.ev: the odds a hand reaches ready or wins on its own draws
 """

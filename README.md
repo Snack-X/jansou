@@ -9,7 +9,7 @@
 Python library for Riichi Mahjong environments and utilities.
 
 - Conversion between multiple tile notations (MPSZ, MJAI, 136)
-- Hand analysis (shanten, wait, efficiency, yaku, fu/han, score)
+- Hand analysis (shanten, wait, efficiency, outlook, yaku, fu/han, score)
 - Game environment for 3/4 player game with configurable rules
 - Game replay log in multiple formats (mjlog XML, mjai JSONL, Tenhou JSON)
 
