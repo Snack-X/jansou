@@ -25,12 +25,14 @@ class _Tty(io.StringIO):
 
 _MJAI_LINES = (
     '{"type":"start_game"}',
-    '{"type":"start_kyoku","bakaze":"E","dora_marker":"9s","kyoku":1,"honba":0,"kyotaku":0,"oya":0,'
-    '"scores":[25000,25000,25000,25000],"tehais":['
-    '["2m","3m","4m","5p","6p","7p","2s","3s","4s","C","C","W","W"],'
-    '["1m","2m","3m","4m","5m","6m","7m","8m","9m","1p","2p","3p","4p"],'
-    '["5p","6p","7p","8p","9p","1s","2s","3s","4s","5s","6s","7s","8s"],'
-    '["9s","E","S","N","P","F","1m","9m","1p","9p","1s","9s","E"]]}',
+    (
+        '{"type":"start_kyoku","bakaze":"E","dora_marker":"9s","kyoku":1,"honba":0,"kyotaku":0,"oya":0,'
+        '"scores":[25000,25000,25000,25000],"tehais":['
+        '["2m","3m","4m","5p","6p","7p","2s","3s","4s","C","C","W","W"],'
+        '["1m","2m","3m","4m","5m","6m","7m","8m","9m","1p","2p","3p","4p"],'
+        '["5p","6p","7p","8p","9p","1s","2s","3s","4s","5s","6s","7s","8s"],'
+        '["9s","E","S","N","P","F","1m","9m","1p","9p","1s","9s","E"]]}'
+    ),
     '{"type":"tsumo","actor":0,"pai":"C"}',
     '{"type":"hora","actor":0,"target":0,"deltas":[48000,-16000,-16000,-16000]}',
     '{"type":"end_kyoku"}',

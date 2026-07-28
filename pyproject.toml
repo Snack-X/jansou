@@ -81,6 +81,7 @@ ignore = [
 
     "EM", # flake8-errmsg
 
+    "CPY001",  # missing-copyright-notice
     "PLR2004", # magic-value-comparison
     "S311",    # suspicious-non-cryptographic-random-usage
     "TRY003",  # raise-vanilla-args

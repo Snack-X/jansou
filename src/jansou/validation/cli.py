@@ -228,8 +228,10 @@ def _collect(
 def _format(summary: Summary) -> str:
     """The human-readable report for a run."""
     lines = [
-        f"files: {summary.files}  wins passed: {summary.passed}  "
-        f"failed: {summary.failed}  file errors: {summary.errors}",
+        (
+            f"files: {summary.files}  wins passed: {summary.passed}  "
+            f"failed: {summary.failed}  file errors: {summary.errors}"
+        ),
     ]
     if summary.failure_samples:
         lines.append(f"first {len(summary.failure_samples)} problem(s):")

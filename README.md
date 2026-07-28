@@ -24,7 +24,7 @@ tiles = parse_mpsz("667s 34668m 2357p 2z")
 
 dump_mpsz(tiles)  # 34668m2357p667s2z
 dump_mjai(tiles)  # 6s 6s 7s 3m 4m 6m 6m 8m 2p 3p 5p 7p S
-dump_136(tiles)   # [92, 93, 96, 8, 12, 20, 21, 28, 40, 44, 53, 60, 112]
+dump_136(tiles)  # [92, 93, 96, 8, 12, 20, 21, 28, 40, 44, 53, 60, 112]
 ```
 
 ### Hand
@@ -41,15 +41,15 @@ from jansou.analysis.waits import waits
 
 hand = Hand(parse_mpsz("279m 1569p 1168s 35z 2m"))
 
-shanten(hand)    # 3
+shanten(hand)  # 3
 is_tenpai(hand)  # False
 
 options = discard_evaluation(hand)  # sorted by shanten advancement and wider acceptance
-                                    # in this case, 1p 9p 3z 5z are the best, with the same number of acceptance
+# in this case, 1p 9p 3z 5z are the best, with the same number of acceptance
 
 best = options[0]
-best.discard           # 1p
-best.shanten           # 3
+best.discard  # 1p
+best.shanten  # 3
 best.total_acceptance  # 20
 
 # (2) acceptance
@@ -58,9 +58,9 @@ hand = Hand(parse_mpsz("567m 34567p 23489s 2z"))
 
 options = discard_evaluation(hand)  # there are multiple options for 1 shanten
 
-best = options[0]      # but the best option is 2z with the widest acceptance
-best.discard           # 2z
-best.shanten           # 1
+best = options[0]  # but the best option is 2z with the widest acceptance
+best.discard  # 2z
+best.shanten  # 1
 best.total_acceptance  # 33
 
 # (3) waits
@@ -85,7 +85,7 @@ hand = Hand(
     [
         Meld(MeldType.PON, parse_mpsz("111m"), Tile(TileKind.M1), CallSource.TOIMEN),
         Meld(MeldType.PON, parse_mpsz("777z"), Tile(TileKind.CHUN), CallSource.KAMICHA),
-    ]
+    ],
 )
 
 context = WinContext(
@@ -97,15 +97,15 @@ context = WinContext(
 
 result = score(hand, Tile(TileKind.P5), context)
 
-result.yaku      # YAKUHAI_CHUN
-result.han       # 2
+result.yaku  # YAKUHAI_CHUN
+result.han  # 2
 result.fu.total  # 40 (20 + 4 + 4 + 4 = 32)
 
 result.payment.total  # 2600
 
-shanten(hand)    # 0
+shanten(hand)  # 0
 is_tenpai(hand)  # True
-waits(hand)      # 2p, 5p
+waits(hand)  # 2p, 5p
 ```
 
 ### Game environment, replay log
@@ -126,8 +126,8 @@ result.scores
 result.ranking
 
 paifu = paifu_from_game(env)
-dump_tenhou_json_url(paifu)   # https://tenhou.net/6/#json=...
-                              # can be viewed at https://mjv.snack.studio
+dump_tenhou_json_url(paifu)  # https://tenhou.net/6/#json=...
+# can be viewed at https://mjv.snack.studio
 ```
 
 ### Step-by-step play
@@ -137,19 +137,19 @@ from jansou.core.rules import preset
 from jansou.game.environment import Environment
 
 env = Environment(preset("tenhou"))
-game = env.play()                    # returns generator
-                                     # play() make take `observe` function for
-                                     # unmasked events
+game = env.play()  # returns generator
+# play() make take `observe` function for
+# unmasked events
 
 
-request = next(game)                 # first decision
+request = next(game)  # first decision
 
 while True:
-    action = __choose(request)       # any of request.actions
+    action = __choose(request)  # any of request.actions
     try:
         request = game.send(action)
     except StopIteration as stop:
-        result = stop.value          # GameResult
+        result = stop.value  # GameResult
         break
 ```
 
