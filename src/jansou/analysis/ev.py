@@ -80,7 +80,10 @@ class Valuation:
         round_wind: The wind of the round.
         seat_wind: The wind of the seat.
         red_fives: Red copies held per kind, since a count of tiles by kind
-            cannot carry the marking on its own. Only fives may be marked.
+            cannot carry the marking on its own. Only fives may be marked. One
+            valuation serves every candidate of a discard sweep, so a candidate
+            that cuts its only marked five is priced with the red in the pond
+            rather than rejected.
     """
 
     rules: Rules
@@ -439,6 +442,11 @@ def _curve(graph: _Graph, pools: list[list[int]], total: int, horizon: int, *, w
 def _check_valuation(concealed: list[int], num_melds: int, valuation: Valuation) -> None:
     """Reject a valuation that does not describe the hand it is asked about.
 
+    The marks are checked against the hand as the caller passed it. A discard
+    weighed inside may drop below its mark -- cutting the only copy of a marked
+    five cuts the red one -- and the pricing clamps to the copies still held
+    rather than rejecting the candidate.
+
     Raises:
         ValueError: If the called sets do not match the meld count, or a red
             marking names a kind that is not a five or is not held.
@@ -466,8 +474,15 @@ def _outlook(
     max_distance: int | None,
     valuation: Valuation | None = None,
     memo: dict[tuple, float] | None = None,
+    *,
+    validate: bool = True,
 ) -> Outlook:
-    """The shared body behind both entry points."""
+    """The shared body behind both entry points.
+
+    ``validate`` is unset only for the per-candidate calls of a discard sweep,
+    whose valuation was already checked against the whole hand: a candidate that
+    cuts a marked five legitimately holds fewer copies than the mark.
+    """
     if max_draws < 0:
         raise ValueError(f"max draws must not be negative, got {max_draws}")
     if beam is not None and beam < 1:
@@ -476,7 +491,7 @@ def _outlook(
         raise ValueError(f"max distance must not be negative, got {max_distance}")
     kinds = kinds_in_play(player_count)
     distance = shanten_counts(concealed, num_melds)
-    if valuation is not None:
+    if valuation is not None and validate:
         _check_valuation(concealed, num_melds, valuation)
     if max_distance is not None and distance > max_distance:
         blank = (0.0,) * (max_draws + 1)
@@ -586,6 +601,10 @@ def discard_outlooks(
             held than exist, or if the valuation does not describe the hand.
     """
     counts = list(concealed)
+    # The marks are checked against the whole hand here; each candidate below may
+    # legitimately hold fewer copies than the mark, having cut the marked five.
+    if valuation is not None:
+        _check_valuation(counts, num_melds, valuation)
     memo: dict[tuple, float] = {}
     held = [kind for kind in kinds_in_play(player_count) if counts[kind]]
     after = discard_shantens(counts, num_melds, held)
@@ -596,7 +615,7 @@ def discard_outlooks(
             continue
         counts[kind] -= 1
         outlooks[kind] = _outlook(
-            counts, num_melds, max_draws, visible, player_count, beam, max_distance, valuation, memo
+            counts, num_melds, max_draws, visible, player_count, beam, max_distance, valuation, memo, validate=False
         )
         counts[kind] += 1
     return outlooks

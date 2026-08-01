@@ -588,3 +588,39 @@ class TestPointsRejections:
         reds[TileKind.P5] = 2
         with pytest.raises(ValueError, match="red"):
             hand_outlook(counts("123m456m789m345p5s"), 0, 4, valuation=Valuation(rules=Rules(), red_fives=tuple(reds)))
+
+
+class TestBareRed:
+    """A hand whose only copy of a marked five can itself be the discard."""
+
+    HAND = "123m456m789m5p678s9s"  # red 5p and 9s both give a tanki tenpai
+
+    def marks(self) -> tuple[int, ...]:
+        reds = [0] * NUM_KINDS
+        reds[TileKind.P5] = 1
+        return tuple(reds)
+
+    def test_cutting_the_marked_five_is_priced_not_rejected(self) -> None:
+        hand = counts(self.HAND)
+        results = discard_outlooks(hand, 0, 8, valuation=Valuation(rules=Rules(), red_fives=self.marks()))
+        assert TileKind.P5 in results
+        assert results[TileKind.P5].points[-1] > 0.0
+
+    def test_the_cut_red_is_in_the_pond_for_that_candidate(self) -> None:
+        # The candidate that cuts the marked five prices as if never marked; the
+        # candidates that keep it price the aka. Their conditional values differ
+        # by at least the aka han's doubling on this hand.
+        hand = counts(self.HAND)
+        marked = discard_outlooks(hand, 0, 8, valuation=Valuation(rules=Rules(), red_fives=self.marks()))
+        plain = discard_outlooks(hand, 0, 8, valuation=Valuation(rules=Rules()))
+        assert marked[TileKind.P5].points == plain[TileKind.P5].points
+        keeper = next(kind for kind in marked if kind != TileKind.P5)
+        assert marked[keeper].points[-1] > plain[keeper].points[-1]
+
+    def test_the_direct_entry_point_still_rejects_an_absent_red(self) -> None:
+        # Only a discard sweep may legitimately fall below the mark; a 13-tile
+        # hand passed directly with a mark it does not hold is a caller error.
+        hand = counts(self.HAND)
+        hand[TileKind.P5] -= 1
+        with pytest.raises(ValueError, match="red"):
+            hand_outlook(hand, 0, 8, valuation=Valuation(rules=Rules(), red_fives=self.marks()))
