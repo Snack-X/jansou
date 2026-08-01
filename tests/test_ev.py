@@ -6,11 +6,14 @@ from itertools import pairwise
 
 import pytest
 
-from jansou.analysis.ev import Outlook, _build, _GraphCache, discard_outlooks, hand_outlook, outlook
+from jansou.analysis.ev import Outlook, Valuation, _build, _GraphCache, discard_outlooks, hand_outlook, outlook
 from jansou.analysis.shanten import discard_shantens, shanten_counts
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
-from jansou.core.tiles import NUM_KINDS, TILES_PER_KIND, TileKind, counts_by_kind, kinds_in_play
+from jansou.core.rules import Rules, preset
+from jansou.core.tiles import NUM_KINDS, TILES_PER_KIND, Tile, TileKind, Wind, counts_by_kind, kinds_in_play
+from jansou.scoring.context import WinContext
+from jansou.scoring.score import ScoringError, score
 
 TOLERANCE = 1e-12
 
@@ -23,6 +26,11 @@ def counts(mpsz: str) -> list[int]:
 def kind_of(mpsz: str) -> TileKind:
     """The single kind named by a one-tile MPSZ string."""
     return parse_mpsz(mpsz)[0].kind
+
+
+def tiles_of(counts: list[int]) -> tuple[Tile, ...]:
+    """Plain tiles for a count vector, in canonical order."""
+    return tuple(Tile(TileKind(kind)) for kind, copies in enumerate(counts) for _ in range(copies))
 
 
 def brute_outlook(
@@ -371,3 +379,212 @@ class TestDistanceGate:
     def test_rejects_negative_distance(self) -> None:
         with pytest.raises(ValueError, match="max distance"):
             hand_outlook(counts("123m456m789m13p55s"), 0, 4, max_distance=-1)
+
+
+def brute_points(
+    hand: list[int],
+    num_melds: int,
+    draws: int,
+    valuation: Valuation,
+    *,
+    player_count: int = 4,
+) -> float:
+    """What a win is worth given it happens, by exhaustive points-maximising search.
+
+    The independent oracle for the points curve: it searches every discard rather
+    than only the advancing ones, choosing at each draw the line with the greatest
+    points expected, and divides that by the win odds of the same line.
+    """
+    seen = [0] * NUM_KINDS
+    kinds = kinds_in_play(player_count)
+    total = sum(TILES_PER_KIND - seen[k] - hand[k] for k in kinds)
+    context = WinContext(
+        rules=valuation.rules,
+        round_wind=valuation.round_wind,
+        seat_wind=valuation.seat_wind,
+        is_tsumo=True,
+        dora_indicators=valuation.dora_indicators,
+    )
+
+    def worth(state: list[int], drawn: int) -> float:
+        tiles: list[Tile] = []
+        for kind, copies in enumerate(state):
+            reds = min(valuation.red_fives[kind], copies) if valuation.red_fives else 0
+            tiles.extend(Tile(TileKind(kind), red=True) for _ in range(reds))
+            tiles.extend(Tile(TileKind(kind)) for _ in range(copies - reds))
+        tiles.append(Tile(TileKind(drawn)))
+        try:
+            return float(score(Hand(tuple(tiles), valuation.melds), Tile(TileKind(drawn)), context).payment.total)
+        except ScoringError:
+            return 0.0
+
+    def walk(state: list[int], left: int) -> tuple[float, float]:
+        if left == 0:
+            return 0.0, 0.0
+        earned = won = 0.0
+        for kind in kinds:
+            copies = TILES_PER_KIND - seen[kind] - state[kind]
+            if not copies:
+                continue
+            state[kind] += 1
+            if shanten_counts(state, num_melds) == -1:
+                state[kind] -= 1
+                earned += copies * worth(state, kind)
+                won += copies
+                continue
+            best = max(
+                (walk([*state[:j], state[j] - 1, *state[j + 1 :]], left - 1) for j in kinds if state[j]),
+                key=lambda pair: pair[0],
+            )
+            state[kind] -= 1
+            earned += copies * best[0]
+            won += copies * best[1]
+        return earned / total, won / total
+
+    expected, chance = walk(list(hand), draws)
+    return expected / chance if chance else 0.0
+
+
+class TestPointsClosedForm:
+    def test_a_dead_wait_prices_its_only_completion(self) -> None:
+        # One completion and no way to improve, so the conditional expectation is
+        # simply that hand's score.
+        hand = counts("123m456m789m234p5s")
+        valuation = Valuation(rules=Rules(), dora_indicators=(Tile(TileKind.M1),))
+        context = WinContext(rules=Rules(), is_tsumo=True, dora_indicators=(Tile(TileKind.M1),))
+        alone = score(Hand(tuple(parse_mpsz("123m456m789m234p55s"))), Tile(TileKind.S5), context).payment.total
+        result = hand_outlook(hand, 0, 8, valuation=valuation)
+        assert all(value == pytest.approx(float(alone)) for value in result.points[1:])
+
+    def test_a_multi_wait_is_the_copy_weighted_average(self) -> None:
+        # Three finished sets, a pair, and a two-sided wait: no advancing draw
+        # exists, so the answer is each completion weighted by its live copies.
+        hand = counts("123m456m789m11p34s")
+        valuation = Valuation(rules=Rules())
+        context = WinContext(rules=Rules(), is_tsumo=True)
+        earned = chance = 0.0
+        for mpsz in ("2s", "5s"):
+            kind = kind_of(mpsz)
+            copies = TILES_PER_KIND - hand[kind]
+            whole = [*hand]
+            whole[kind] += 1
+            paid = score(Hand(tiles_of(whole)), Tile(kind), context).payment.total
+            earned += copies * paid
+            chance += copies
+        result = hand_outlook(hand, 0, 10, valuation=valuation)
+        assert result.points[-1] == pytest.approx(earned / chance)
+
+
+class TestPointsOracle:
+    @pytest.mark.parametrize("draws", [1, 2])
+    def test_matches_oracle_without_upgrades(self, draws: int) -> None:
+        # Same idiom as the probability curves: compare where the restricted and
+        # the full search cannot diverge.
+        hand = counts("123m456m789m12p55s")
+        valuation = Valuation(rules=Rules(), dora_indicators=(Tile(TileKind.M1),))
+        result = hand_outlook(hand, 0, draws, valuation=valuation)
+        assert result.points[draws] == pytest.approx(brute_points(hand, 0, draws, valuation))
+
+    def test_matches_oracle_with_a_red_five(self) -> None:
+        # The penchan again, so the restricted and full searches cannot diverge,
+        # this time with the pair's five marked red.
+        hand = counts("123m456m789m12p55s")
+        reds = [0] * NUM_KINDS
+        reds[TileKind.S5] = 1
+        valuation = Valuation(rules=Rules(), red_fives=tuple(reds))
+        assert hand_outlook(hand, 0, 2, valuation=valuation).points[2] == pytest.approx(
+            brute_points(hand, 0, 2, valuation)
+        )
+
+
+class TestPointsContext:
+    def test_a_dora_indicator_raises_the_price(self) -> None:
+        hand = counts("123m456m789m234p5s")
+        blind = hand_outlook(hand, 0, 6, valuation=Valuation(rules=Rules()))
+        dora = hand_outlook(hand, 0, 6, valuation=Valuation(rules=Rules(), dora_indicators=(Tile(TileKind.S4),)))
+        assert dora.points[-1] > blind.points[-1]
+
+    def test_a_red_five_raises_the_price(self) -> None:
+        hand = counts("123m456m789m345p5s")
+        reds = [0] * NUM_KINDS
+        reds[TileKind.P5] = 1
+        plain = hand_outlook(hand, 0, 6, valuation=Valuation(rules=Rules()))
+        aka = hand_outlook(hand, 0, 6, valuation=Valuation(rules=Rules(), red_fives=tuple(reds)))
+        assert aka.points[-1] > plain.points[-1]
+
+    def test_presets_price_differently(self) -> None:
+        # Tenhou plays red fives, the association ruleset does not, so the same
+        # marked hand is worth more under one than the other.
+        hand = counts("123m456m789m345p5s")
+        reds = [0] * NUM_KINDS
+        reds[TileKind.P5] = 1
+        with_aka = hand_outlook(hand, 0, 6, valuation=Valuation(rules=preset("tenhou"), red_fives=tuple(reds)))
+        without = hand_outlook(hand, 0, 6, valuation=Valuation(rules=preset("renmei"), red_fives=tuple(reds)))
+        assert with_aka.points[-1] > without.points[-1]
+
+    def test_an_open_hand_with_no_yaku_is_worth_nothing(self) -> None:
+        # All simples behind a called triplet scores only on open tanyao, so
+        # barring it leaves a hand that can complete but cannot legally win.
+        pon = Meld(MeldType.PON, tuple(parse_mpsz("222m")), called=parse_mpsz("2m")[0], source=CallSource.KAMICHA)
+        hand = counts("345m345p678p3s")
+        allowed = hand_outlook(hand, 1, 6, valuation=Valuation(rules=Rules(kuitan=True), melds=(pon,)))
+        barred = hand_outlook(hand, 1, 6, valuation=Valuation(rules=Rules(kuitan=False), melds=(pon,)))
+        assert allowed.points[-1] > 0.0
+        assert barred.points[-1] == 0.0
+        # The shape is unchanged either way: only the price moves.
+        assert allowed.win == barred.win
+
+    def test_the_dealer_is_paid_more(self) -> None:
+        hand = counts("123m456m789m234p5s")
+        non_dealer = hand_outlook(hand, 0, 6, valuation=Valuation(rules=Rules(), seat_wind=Wind.SOUTH))
+        dealer = hand_outlook(hand, 0, 6, valuation=Valuation(rules=Rules(), seat_wind=Wind.EAST))
+        assert dealer.points[-1] > non_dealer.points[-1]
+
+
+class TestPointsShape:
+    def test_points_are_absent_without_a_valuation(self) -> None:
+        assert hand_outlook(counts("123m456m789m13p55s"), 0, 5).points == ()
+
+    def test_points_are_indexed_like_the_other_curves(self) -> None:
+        result = hand_outlook(counts("123m456m789m13p55s"), 0, 5, valuation=Valuation(rules=Rules()))
+        assert len(result.points) == len(result.win) == len(result.ready) == 6
+        assert result.points[0] == 0.0
+
+    def test_beyond_the_gate_points_are_flat_zero(self) -> None:
+        far = counts("129m458m134p256s9s")
+        assert hand_outlook(far, 0, 5, valuation=Valuation(rules=Rules())).points == (0.0,) * 6
+
+    def test_the_discard_entry_point_agrees(self) -> None:
+        hand = counts("123m456m789m234p55s")
+        valuation = Valuation(rules=Rules(), dora_indicators=(Tile(TileKind.M1),))
+        for kind, result in discard_outlooks(hand, 0, 6, valuation=valuation).items():
+            rest = [*hand]
+            rest[kind] -= 1
+            assert result == hand_outlook(rest, 0, 6, valuation=valuation)
+
+    def test_repeat_calls_agree(self) -> None:
+        hand = counts("123m456m78m134p55s")
+        valuation = Valuation(rules=Rules(), dora_indicators=(Tile(TileKind.M1),))
+        assert hand_outlook(hand, 0, 6, valuation=valuation) == hand_outlook(hand, 0, 6, valuation=valuation)
+
+
+class TestPointsRejections:
+    def test_rejects_a_meld_count_mismatch(self) -> None:
+        with pytest.raises(ValueError, match="valuation holds"):
+            hand_outlook(counts("456m789m134p12s"), 1, 4, valuation=Valuation(rules=Rules()))
+
+    def test_rejects_a_short_red_vector(self) -> None:
+        with pytest.raises(ValueError, match="count per kind"):
+            hand_outlook(counts("123m456m789m13p55s"), 0, 4, valuation=Valuation(rules=Rules(), red_fives=(1, 0)))
+
+    def test_rejects_a_red_that_is_not_a_five(self) -> None:
+        reds = [0] * NUM_KINDS
+        reds[TileKind.M1] = 1
+        with pytest.raises(ValueError, match="cannot be red"):
+            hand_outlook(counts("123m456m789m13p55s"), 0, 4, valuation=Valuation(rules=Rules(), red_fives=tuple(reds)))
+
+    def test_rejects_more_reds_than_the_hand_holds(self) -> None:
+        reds = [0] * NUM_KINDS
+        reds[TileKind.P5] = 2
+        with pytest.raises(ValueError, match="red"):
+            hand_outlook(counts("123m456m789m345p5s"), 0, 4, valuation=Valuation(rules=Rules(), red_fives=tuple(reds)))

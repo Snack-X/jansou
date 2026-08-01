@@ -35,12 +35,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from jansou.analysis.shanten import discard_shantens, draw_shantens, shanten_counts
-from jansou.core.tiles import TILES_PER_KIND, TileKind, counts_by_kind, kinds_in_play
+from jansou.core.hand import Hand
+from jansou.core.tiles import FIVE_KINDS, NUM_KINDS, TILES_PER_KIND, Tile, TileKind, Wind, counts_by_kind, kinds_in_play
+from jansou.scoring.context import WinContext
+from jansou.scoring.score import ScoringError, score
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from jansou.core.hand import Hand
+    from jansou.core.hand import Meld
+    from jansou.core.rules import Rules
 
 _GRAPH_CACHE_STATES = 200_000
 """Hands the reachable-hand graph cache holds, summed over its entries.
@@ -59,20 +63,54 @@ _READY = 0
 
 
 @dataclass(frozen=True)
+class Valuation:
+    """The table as it stands, for pricing a hand's winning completions.
+
+    The context is frozen at the moment of asking: the indicators are the ones
+    already turned, and no later reveal, no ura, and no riichi is supposed. A
+    completion is priced as a self-draw, which is the only win the abstraction
+    admits, so a concealed hand always carries at least the self-draw yaku.
+    Table bonuses -- the repeat counter and the deposits on the table -- are left
+    out, since they belong to the table rather than to the hand.
+
+    Attributes:
+        rules: The rules the completion is scored under.
+        melds: The called sets the hand holds, which fix what it can still score.
+        dora_indicators: The indicators turned so far.
+        round_wind: The wind of the round.
+        seat_wind: The wind of the seat.
+        red_fives: Red copies held per kind, since a count of tiles by kind
+            cannot carry the marking on its own. Only fives may be marked.
+    """
+
+    rules: Rules
+    melds: tuple[Meld, ...] = ()
+    dora_indicators: tuple[Tile, ...] = ()
+    round_wind: Wind = Wind.EAST
+    seat_wind: Wind = Wind.EAST
+    red_fives: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class Outlook:
     """How a hand is expected to fare on its own draws, by draws remaining.
 
-    Both curves are indexed by the number of draws still to come, from zero up to
-    the horizon the caller asked for, and both are cumulative: entry ``d`` is the
-    probability of having reached that outcome on or before the ``d``-th draw.
+    Every curve is indexed by the number of draws still to come, from zero up to
+    the horizon the caller asked for. The two probabilities are cumulative: entry
+    ``d`` is the chance of having reached that outcome on or before the ``d``-th
+    draw.
 
     Attributes:
         ready: The chance of having reached ready, playing to maximise it.
         win: The chance of having won, playing to maximise it.
+        points: What a win is worth on average, given that it happens, playing to
+            maximise the points expected. Empty when no valuation was supplied,
+            and zero where no win is possible at all.
     """
 
     ready: tuple[float, ...]
     win: tuple[float, ...]
+    points: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -286,6 +324,102 @@ def _sweep(graph: _Graph, pools: list[list[int]], total: int, later: list[float]
     return values
 
 
+def _completed(state: tuple[int, ...], drawn: int, valuation: Valuation) -> Hand:
+    """The hand this state becomes when the drawn kind completes it.
+
+    Red copies are placed among the tiles already held, never among the draw:
+    the pool is counted by kind, so which copy arrives is not modelled. That
+    also guarantees a plain copy of the drawn kind for the win to point at.
+    """
+    tiles: list[Tile] = []
+    for kind, copies in enumerate(state):
+        reds = min(valuation.red_fives[kind], copies) if valuation.red_fives else 0
+        tiles.extend(Tile(TileKind(kind), red=True) for _ in range(reds))
+        tiles.extend(Tile(TileKind(kind)) for _ in range(copies - reds))
+    tiles.append(Tile(TileKind(drawn)))
+    return Hand(tuple(tiles), valuation.melds)
+
+
+def _value(state: tuple[int, ...], drawn: int, valuation: Valuation, memo: dict[tuple, float]) -> float:
+    """What this completion pays, or nothing when it carries no yaku to win on."""
+    key = (state, drawn)
+    if key in memo:
+        return memo[key]
+    context = WinContext(
+        rules=valuation.rules,
+        round_wind=valuation.round_wind,
+        seat_wind=valuation.seat_wind,
+        is_tsumo=True,
+        dora_indicators=valuation.dora_indicators,
+    )
+    try:
+        worth = float(score(_completed(state, drawn, valuation), Tile(TileKind(drawn)), context).payment.total)
+    except ScoringError:
+        worth = 0.0
+    memo[key] = worth
+    return worth
+
+
+def _points_sweep(
+    graph: _Graph,
+    pools: list[list[int]],
+    total: int,
+    later: tuple[list[float], list[float]],
+    worth: list[dict[int, float]],
+) -> tuple[list[float], list[float]]:
+    """One draw of expected points, carrying the win odds of the line that earns it.
+
+    The choice at each improving draw is the one that maximises points expected,
+    which is a third optimum alongside the two the probability curves report. The
+    win odds ride along under that same choice, so dividing one by the other gives
+    what a win is worth given that it happens.
+    """
+    later_points, later_wins = later
+    points = [0.0] * len(graph.counts)
+    wins = [0.0] * len(graph.counts)
+    for index, pool in enumerate(pools):
+        held_points, held_wins = later_points[index], later_wins[index]
+        drawn = 0
+        earned = 0.0
+        won = 0.0
+        for kind in graph.wins[index]:
+            drawn += pool[kind]
+            earned += pool[kind] * worth[index][kind]
+            won += pool[kind]
+        for kind, targets in graph.moves[index]:
+            drawn += pool[kind]
+            best_points, best_wins = held_points, held_wins
+            for target in targets:
+                if later_points[target] > best_points:
+                    best_points, best_wins = later_points[target], later_wins[target]
+            earned += pool[kind] * best_points
+            won += pool[kind] * best_wins
+        points[index] = (earned + (total - drawn) * held_points) / total
+        wins[index] = (won + (total - drawn) * held_wins) / total
+    return points, wins
+
+
+def _points_curve(
+    graph: _Graph,
+    pools: list[list[int]],
+    total: int,
+    horizon: int,
+    valuation: Valuation,
+    memo: dict[tuple, float],
+) -> tuple[float, ...]:
+    """What a win is worth given it happens, over the whole draws-remaining curve."""
+    worth = [
+        {kind: _value(counts, kind, valuation, memo) for kind in graph.wins[index]}
+        for index, counts in enumerate(graph.counts)
+    ]
+    later = ([0.0] * len(graph.counts), [0.0] * len(graph.counts))
+    curve = [0.0]
+    for _ in range(horizon):
+        later = _points_sweep(graph, pools, total, later, worth)
+        curve.append(later[0][0] / later[1][0] if later[1][0] else 0.0)
+    return tuple(curve)
+
+
 def _curve(graph: _Graph, pools: list[list[int]], total: int, horizon: int, *, winning: bool) -> tuple[float, ...]:
     """The whole draws-remaining curve for one measure.
 
@@ -302,6 +436,26 @@ def _curve(graph: _Graph, pools: list[list[int]], total: int, horizon: int, *, w
     return tuple(curve)
 
 
+def _check_valuation(concealed: list[int], num_melds: int, valuation: Valuation) -> None:
+    """Reject a valuation that does not describe the hand it is asked about.
+
+    Raises:
+        ValueError: If the called sets do not match the meld count, or a red
+            marking names a kind that is not a five or is not held.
+    """
+    if len(valuation.melds) != num_melds:
+        raise ValueError(f"valuation holds {len(valuation.melds)} melds, but the hand has {num_melds}")
+    if not valuation.red_fives:
+        return
+    if len(valuation.red_fives) != NUM_KINDS:
+        raise ValueError(f"red fives must be a count per kind, got {len(valuation.red_fives)}")
+    for kind, reds in enumerate(valuation.red_fives):
+        if reds and TileKind(kind) not in FIVE_KINDS:
+            raise ValueError(f"kind {TileKind(kind)} cannot be red")
+        if reds > concealed[kind]:
+            raise ValueError(f"{reds} red {TileKind(kind)} marked, but the hand holds {concealed[kind]}")
+
+
 def _outlook(
     concealed: list[int],
     num_melds: int,
@@ -310,6 +464,8 @@ def _outlook(
     player_count: int,
     beam: int | None,
     max_distance: int | None,
+    valuation: Valuation | None = None,
+    memo: dict[tuple, float] | None = None,
 ) -> Outlook:
     """The shared body behind both entry points."""
     if max_draws < 0:
@@ -320,9 +476,11 @@ def _outlook(
         raise ValueError(f"max distance must not be negative, got {max_distance}")
     kinds = kinds_in_play(player_count)
     distance = shanten_counts(concealed, num_melds)
+    if valuation is not None:
+        _check_valuation(concealed, num_melds, valuation)
     if max_distance is not None and distance > max_distance:
         blank = (0.0,) * (max_draws + 1)
-        return Outlook(ready=blank, win=blank)
+        return Outlook(ready=blank, win=blank, points=blank if valuation else ())
     graph = _graph(tuple(concealed), num_melds, player_count, max_draws, beam)
     pools, total = _unseen(graph, visible or [0] * len(concealed), kinds)
     if total < max_draws:
@@ -330,6 +488,11 @@ def _outlook(
     return Outlook(
         ready=_curve(graph, pools, total, max_draws, winning=False),
         win=_curve(graph, pools, total, max_draws, winning=True),
+        points=(
+            _points_curve(graph, pools, total, max_draws, valuation, memo if memo is not None else {})
+            if valuation is not None
+            else ()
+        ),
     )
 
 
@@ -342,6 +505,7 @@ def hand_outlook(
     player_count: int = 4,
     beam: int | None = 1,
     max_distance: int | None = 2,
+    valuation: Valuation | None = None,
 ) -> Outlook:
     """The outlook for a resting hand played on as it stands.
 
@@ -363,6 +527,8 @@ def hand_outlook(
             beyond it both curves are flat zero. ``None`` solves at any distance.
             Cost rises about tenfold per step away from ready, so this is the
             control that bounds it.
+        valuation: The table to price winning completions against. Given one, the
+            ``points`` curve is filled; without one it stays empty.
 
     Returns:
         The ready and win curves over zero to ``max_draws`` draws.
@@ -370,10 +536,10 @@ def hand_outlook(
     Raises:
         ValueError: If the hand is not of a legal resting size, if ``max_draws``
             is negative or exceeds the unseen tiles, if ``beam`` is below one, if
-            ``max_distance`` is negative, or if a kind has more copies visible
-            and held than exist.
+            ``max_distance`` is negative, if a kind has more copies visible and
+            held than exist, or if the valuation does not describe the hand.
     """
-    return _outlook(concealed, num_melds, max_draws, visible, player_count, beam, max_distance)
+    return _outlook(concealed, num_melds, max_draws, visible, player_count, beam, max_distance, valuation)
 
 
 def discard_outlooks(
@@ -385,6 +551,7 @@ def discard_outlooks(
     player_count: int = 4,
     beam: int | None = 1,
     max_distance: int | None = 2,
+    valuation: Valuation | None = None,
 ) -> dict[TileKind, Outlook]:
     """The outlook left behind by each discard from a hand holding a fresh draw.
 
@@ -405,6 +572,8 @@ def discard_outlooks(
         max_distance: The furthest from ready a hand may be and still be solved;
             beyond it every curve returned is flat zero. ``None`` solves at any
             distance.
+        valuation: The table to price winning completions against. Given one, the
+            ``points`` curve is filled; without one it stays empty.
 
     Returns:
         Each discard that holds the hand's distance to ready, mapped to the
@@ -413,10 +582,11 @@ def discard_outlooks(
     Raises:
         ValueError: If the hand is not of a legal post-draw size, if ``max_draws``
             is negative or exceeds the unseen tiles, if ``beam`` is below one, if
-            ``max_distance`` is negative, or if a kind has more copies visible
-            and held than exist.
+            ``max_distance`` is negative, if a kind has more copies visible and
+            held than exist, or if the valuation does not describe the hand.
     """
     counts = list(concealed)
+    memo: dict[tuple, float] = {}
     held = [kind for kind in kinds_in_play(player_count) if counts[kind]]
     after = discard_shantens(counts, num_melds, held)
     keeps = min(after.values())
@@ -425,7 +595,9 @@ def discard_outlooks(
         if after[kind] != keeps:
             continue
         counts[kind] -= 1
-        outlooks[kind] = _outlook(counts, num_melds, max_draws, visible, player_count, beam, max_distance)
+        outlooks[kind] = _outlook(
+            counts, num_melds, max_draws, visible, player_count, beam, max_distance, valuation, memo
+        )
         counts[kind] += 1
     return outlooks
 
@@ -438,6 +610,7 @@ def outlook(
     player_count: int = 4,
     beam: int | None = 1,
     max_distance: int | None = 2,
+    valuation: Valuation | None = None,
 ) -> Outlook:
     """The outlook for a resting hand.
 
@@ -451,9 +624,11 @@ def outlook(
             first, or ``None`` to keep every one.
         max_distance: The furthest from ready a hand may be and still be solved;
             beyond it both curves are flat zero. ``None`` solves at any distance.
+        valuation: The table to price winning completions against. Given one, the
+            ``points`` curve is filled; without one it stays empty.
 
     Returns:
-        The ready and win curves over zero to ``max_draws`` draws.
+        The curves over zero to ``max_draws`` draws.
     """
     return _outlook(
         counts_by_kind(hand.concealed),
@@ -463,4 +638,5 @@ def outlook(
         player_count,
         beam,
         max_distance,
+        valuation,
     )
