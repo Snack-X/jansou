@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import random
+import zlib
 
 import pytest
 
+from jansou.analysis import shanten as shanten_module
 from jansou.analysis.decompose import is_complete
-from jansou.analysis.shanten import discard_shantens, draw_shantens, is_tenpai, shanten, shanten_counts
+from jansou.analysis.shanten import (
+    discard_shantens,
+    draw_shantens,
+    is_tenpai,
+    probe_shantens,
+    shanten,
+    shanten_counts,
+)
 from jansou.analysis.shanten import is_complete as hand_complete
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
@@ -393,3 +402,126 @@ class TestDiscardShantens:
 
     def test_probing_nothing_returns_nothing(self) -> None:
         assert discard_shantens(counts("123456789m12345z"), 0, ()) == {}
+
+
+@pytest.fixture
+def fresh_tables(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """Blank table state, restored afterwards, for exercising the load paths."""
+    monkeypatch.setattr(shanten_module, "_TABLES_READY", False)
+    monkeypatch.setattr(shanten_module, "_SUIT_CLASSES", [])
+    monkeypatch.setattr(shanten_module, "_HONOR_CLASSES", [])
+    monkeypatch.setattr(shanten_module, "_PROBE_MEMO", {})
+    monkeypatch.setattr(shanten_module, "_COUNT_MEMO", {})
+    monkeypatch.setattr(shanten_module, "_PROBE_VALUES", {})
+    return monkeypatch
+
+
+class TestTablePath:
+    """The table-driven probes against the recursive search they replaced."""
+
+    def test_probes_match_the_recursive_path(self) -> None:
+        rng = random.Random(11)
+        for c, num_melds in _random_hands(rng, 400):
+            resting = sum(c) == 13 - 3 * num_melds
+            delta = 1 if resting else -1
+            kinds = [k for k in range(NUM_KINDS) if (c[k] < TILES_PER_KIND if resting else c[k])]
+            fast = draw_shantens(c, num_melds, kinds) if resting else discard_shantens(c, num_melds, kinds)
+            slow = shanten_module._probed_shantens(c, num_melds, tuple(kinds), delta)
+            assert fast == slow, (c, num_melds, delta)
+
+    def test_a_fifth_copy_draw_stays_inert(self) -> None:
+        # The table cannot index a fifth copy, so the probe defers to the
+        # recursive path, which prices the draw as changing nothing.
+        c = counts("1111m234p567p99s3s")
+        probed = draw_shantens(c, 0, [0])
+        assert probed[0] == shanten_module._probed_shantens(c, 0, (0,), 1)[0] == 1
+
+    def test_counts_past_the_radix_use_the_recursive_path(self) -> None:
+        # Five held copies cannot happen at a real table, but the API accepted
+        # such counts before the tables and must keep answering them.
+        c = [0] * NUM_KINDS
+        c[0] = 5
+        c[9] = c[10] = c[11] = 1
+        c[27] = c[28] = c[29] = 1
+        c[33] = 2
+        assert sum(c) == 13
+        assert shanten_counts(c, 0) == shanten_module._standard(c, 0) or shanten_counts(c, 0) == min(
+            shanten_module._standard(c, 0), shanten_module._chiitoi(c), shanten_module._kokushi(c)
+        )
+        assert draw_shantens(c, 0, [1]) == shanten_module._probed_shantens(c, 0, (1,), 1)
+        c[0] = 6
+        assert discard_shantens(c, 0, [0]) == shanten_module._probed_shantens(c, 0, (0,), -1)
+
+    def test_probe_shantens_is_shared_and_annotated(self) -> None:
+        c = counts("123456789m1234z")
+        first = probe_shantens(c, 0, 1)
+        assert probe_shantens(c, 0, 1) is first  # memoised whole
+        assert first[33] is not None  # 4z toward a pair
+        held_all = counts("123m111z")
+        held_all[31] = 4
+        held_all[0] = held_all[1] = held_all[2] = 1
+        # A kind at four copies reads None: the probe would need a fifth.
+        four = counts("1111m234p567p99s3s")
+        assert probe_shantens(four, 0, 1)[0] is None
+
+    def test_probe_shantens_rejects_bad_input(self) -> None:
+        with pytest.raises(ValueError, match="concealed tiles"):
+            probe_shantens(counts("123m"), 0, 1)
+        overfull = [0] * NUM_KINDS
+        overfull[0] = 5
+        overfull[9] = overfull[10] = overfull[11] = overfull[12] = 2
+        with pytest.raises(ValueError, match="four copies"):
+            probe_shantens(overfull, 0, 1)
+
+    def test_memos_stay_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(shanten_module, "_PROBE_MEMO_SIZE", 8)
+        monkeypatch.setattr(shanten_module, "_COUNT_MEMO_SIZE", 8)
+        monkeypatch.setattr(shanten_module, "_PROBE_MEMO", {})
+        monkeypatch.setattr(shanten_module, "_COUNT_MEMO", {})
+        for c, num_melds in _random_hands(random.Random(12), 40):
+            shanten_counts(c, num_melds)
+            if sum(c) == 13 - 3 * num_melds:
+                probe_shantens(c, num_melds, 1)
+        assert len(shanten_module._PROBE_MEMO) <= 8 + 1
+        assert len(shanten_module._COUNT_MEMO) <= 8 + 1
+
+
+class TestTableLifecycle:
+    """The shipped file loads, and its absence degrades to lazy filling."""
+
+    def test_the_shipped_file_loads(self, fresh_tables: pytest.MonkeyPatch) -> None:
+        _ = fresh_tables
+        c = counts("123m456m78m134p55s")
+        expected = shanten_module._standard(c, 0)
+        assert shanten_counts(c, 0) == expected
+        assert shanten_module._TABLES_READY
+        assert all(
+            cls != shanten_module._UNFILLED
+            for cls in (shanten_module._SUIT_CLASSES[0], shanten_module._HONOR_CLASSES[0])
+        )
+
+    def test_a_missing_file_falls_back_to_lazy_filling(self, fresh_tables: pytest.MonkeyPatch) -> None:
+        def gone() -> bytes:
+            raise FileNotFoundError
+
+        fresh_tables.setattr(shanten_module, "_table_bytes", gone)
+        # A probe is the first table touch here, so it drives the load itself.
+        first = counts("123456789m1234z")
+        assert probe_shantens(first, 0, 1) == probe_shantens(first, 0, 1)
+        for c, num_melds in _random_hands(random.Random(13), 60):
+            assert shanten_counts(c, num_melds) == _reference_shanten_counts(c, num_melds)
+            if sum(c) == 13 - 3 * num_melds:
+                kinds = [k for k in range(NUM_KINDS) if c[k] < TILES_PER_KIND]
+                assert draw_shantens(c, num_melds, kinds) == shanten_module._probed_shantens(
+                    c, num_melds, tuple(kinds), 1
+                )
+
+    def test_a_corrupt_file_falls_back_to_lazy_filling(self, fresh_tables: pytest.MonkeyPatch) -> None:
+        fresh_tables.setattr(shanten_module, "_table_bytes", lambda: zlib.compress(b"JSBT-not-a-table"))
+        c = counts("123m456m789m13p55s")
+        assert shanten_counts(c, 0) == 0
+        assert shanten_module._SUIT_CLASSES.count(shanten_module._UNFILLED) > 0  # lazily filled, not loaded
+
+    def test_a_wrong_magic_file_falls_back(self, fresh_tables: pytest.MonkeyPatch) -> None:
+        fresh_tables.setattr(shanten_module, "_table_bytes", lambda: zlib.compress(b"XXXX" + b"\x00" * 64))
+        assert shanten_counts(counts("123m456m789m13p55s"), 0) == 0
