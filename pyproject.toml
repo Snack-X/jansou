@@ -22,6 +22,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+native = ["jansou-native>=0.1.0,<0.2"]
+
 [project.urls]
 Homepage = "https://github.com/Snack-X/jansou"
 Documentation = "https://snack-x.github.io/jansou/"

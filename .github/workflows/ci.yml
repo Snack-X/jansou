@@ -29,6 +29,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
 
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+
       - name: Install dependencies
         run: uv sync
 
@@ -48,6 +53,11 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
 
       - name: Install dependencies
         run: uv sync
@@ -73,6 +83,11 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+
       - name: Install dependencies
         run: uv sync
 
@@ -81,3 +96,27 @@ jobs:
 
       - name: Ruff format
         run: uv run ruff format --check
+
+  native:
+    name: native (rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Rustfmt
+        run: cargo fmt --check
+        working-directory: native
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: native
+
+      - name: Cargo tests
+        run: cargo test --locked
+        working-directory: native
