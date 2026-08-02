@@ -34,7 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from jansou.analysis.shanten import discard_shantens, draw_shantens, shanten_counts
+from jansou.analysis.shanten import _trim, discard_shantens, probe_shantens, shanten_counts
 from jansou.core.hand import Hand
 from jansou.core.tiles import FIVE_KINDS, NUM_KINDS, TILES_PER_KIND, Tile, TileKind, Wind, counts_by_kind, kinds_in_play
 from jansou.scoring.context import WinContext
@@ -60,6 +60,27 @@ one entry serves every game position that reaches the same shape.
 
 _COMPLETE = -1
 _READY = 0
+
+_EXPANSION_CACHE_SIZE = 25_000
+"""Expanded hands the memo holds before evicting.
+
+An expansion is asked for again whenever another candidate's search reaches the
+same hand, and the shanten sweeps behind it are the solve's dearest work.
+"""
+
+_BREADTH_CACHE_SIZE = 50_000
+"""Acceptance breadths the memo holds before evicting."""
+
+_VALUE_CACHE_SIZE = 30_000
+"""Priced completions the memo holds before evicting.
+
+Keyed by hand, winning kind, and the whole valuation, so a warm entry is safe
+across game positions -- a different table prices the same completion afresh.
+"""
+
+_EXPANSIONS: dict[tuple, tuple[int, list[int], list[tuple[int, list[tuple[int, ...]]]]]] = {}
+_BREADTHS: dict[tuple, int] = {}
+_VALUES: dict[tuple, float] = {}
 
 
 @dataclass(frozen=True)
@@ -140,9 +161,20 @@ class _Graph:
 
 def _acceptance_breadth(counts: list[int], num_melds: int, kinds: tuple[TileKind, ...], base: int) -> int:
     """How many draws would lower this hand's shanten, ignoring visible tiles."""
-    drawable = [kind for kind in kinds if counts[kind] < TILES_PER_KIND]
-    after = draw_shantens(counts, num_melds, drawable)
-    return sum(TILES_PER_KIND - counts[kind] for kind in drawable if after[kind] < base)
+    key = (bytes(counts), num_melds, base, len(kinds))
+    found = _BREADTHS.get(key)
+    if found is not None:
+        return found
+    after = probe_shantens(counts, num_melds, 1)
+    total = 0
+    for kind in kinds:
+        held = counts[kind]
+        if held < TILES_PER_KIND and after[kind] < base:
+            total += TILES_PER_KIND - held
+    _BREADTHS[key] = total
+    if len(_BREADTHS) > _BREADTH_CACHE_SIZE:
+        _trim(_BREADTHS, _BREADTH_CACHE_SIZE)
+    return total
 
 
 def _landings(
@@ -154,11 +186,10 @@ def _landings(
     beam: int | None,
 ) -> list[tuple[int, ...]]:
     """The hands a shanten-lowering draw can leave behind, best first if capped."""
-    held = [kind for kind in kinds if counts[kind]]
-    after = discard_shantens(counts, num_melds, held)
+    after = probe_shantens(counts, num_melds, -1)
     landed: list[tuple[int, ...]] = []
-    for kind, shanten in after.items():
-        if shanten != improved or kind == drawn:
+    for kind in kinds:
+        if not counts[kind] or after[kind] != improved or kind == drawn:
             continue
         counts[kind] -= 1
         landed.append(tuple(counts))
@@ -180,15 +211,23 @@ def _expand(
     """One hand's shanten, its winning draws, and its improving draws' landings.
 
     With ``deepen`` unset the landings are skipped: the hand sits at the horizon,
-    where no further improvement could be drawn on in time to matter.
+    where no further improvement could be drawn on in time to matter. Whole
+    expansions are memoised across graphs, since neighbouring candidates reach
+    the same hands and the shanten sweeps behind an expansion are the solve's
+    dearest work.
     """
+    key = (state, num_melds, kinds, beam, deepen)
+    found = _EXPANSIONS.get(key)
+    if found is not None:
+        return found
     counts = list(state)
     base = shanten_counts(counts, num_melds)
-    drawable = [kind for kind in kinds if counts[kind] < TILES_PER_KIND]
-    after = draw_shantens(counts, num_melds, drawable)
+    after = probe_shantens(counts, num_melds, 1)
     wins: list[int] = []
     moves: list[tuple[int, list[tuple[int, ...]]]] = []
-    for kind in drawable:
+    for kind in kinds:
+        if counts[kind] >= TILES_PER_KIND:
+            continue
         improved = after[kind]
         if improved == _COMPLETE:
             wins.append(int(kind))
@@ -200,7 +239,11 @@ def _expand(
         counts[kind] -= 1
         if landed:
             moves.append((int(kind), landed))
-    return base, wins, moves
+    result = (base, wins, moves)
+    _EXPANSIONS[key] = result
+    if len(_EXPANSIONS) > _EXPANSION_CACHE_SIZE:
+        _trim(_EXPANSIONS, _EXPANSION_CACHE_SIZE)
+    return result
 
 
 def _build(state: tuple[int, ...], num_melds: int, player_count: int, depth: int, beam: int | None) -> _Graph:
@@ -307,8 +350,11 @@ def _sweep(graph: _Graph, pools: list[list[int]], total: int, later: list[float]
     number unseen and the divisor is the one pool total throughout.
     """
     values = [0.0] * len(graph.counts)
+    ready = graph.ready
+    wins = graph.wins
+    moves = graph.moves
     for index, pool in enumerate(pools):
-        if not winning and graph.ready[index]:
+        if not winning and ready[index]:
             values[index] = 1.0
             continue
         held = later[index]
@@ -317,12 +363,19 @@ def _sweep(graph: _Graph, pools: list[list[int]], total: int, later: list[float]
         if winning:
             # Only a ready hand has a winning draw, and the ready measure has
             # already answered for those, so this mass belongs to the win curve.
-            for kind in graph.wins[index]:
-                drawn += pool[kind]
-                value += pool[kind]
-        for kind, targets in graph.moves[index]:
-            drawn += pool[kind]
-            value += pool[kind] * max(held, *(later[target] for target in targets))
+            for kind in wins[index]:
+                copies = pool[kind]
+                drawn += copies
+                value += copies
+        for kind, targets in moves[index]:
+            copies = pool[kind]
+            drawn += copies
+            best = held
+            for target in targets:
+                landed = later[target]
+                if landed > best:  # noqa: PLR1730 -- max() costs a call in the hottest loop
+                    best = landed
+            value += copies * best
         values[index] = (value + (total - drawn) * held) / total
     return values
 
@@ -343,11 +396,12 @@ def _completed(state: tuple[int, ...], drawn: int, valuation: Valuation) -> Hand
     return Hand(tuple(tiles), valuation.melds)
 
 
-def _value(state: tuple[int, ...], drawn: int, valuation: Valuation, memo: dict[tuple, float]) -> float:
+def _value(state: tuple[int, ...], drawn: int, valuation: Valuation) -> float:
     """What this completion pays, or nothing when it carries no yaku to win on."""
-    key = (state, drawn)
-    if key in memo:
-        return memo[key]
+    key = (state, drawn, valuation)
+    found = _VALUES.get(key)
+    if found is not None:
+        return found
     context = WinContext(
         rules=valuation.rules,
         round_wind=valuation.round_wind,
@@ -359,7 +413,9 @@ def _value(state: tuple[int, ...], drawn: int, valuation: Valuation, memo: dict[
         worth = float(score(_completed(state, drawn, valuation), Tile(TileKind(drawn)), context).payment.total)
     except ScoringError:
         worth = 0.0
-    memo[key] = worth
+    _VALUES[key] = worth
+    if len(_VALUES) > _VALUE_CACHE_SIZE:
+        _trim(_VALUES, _VALUE_CACHE_SIZE)
     return worth
 
 
@@ -380,23 +436,28 @@ def _points_sweep(
     later_points, later_wins = later
     points = [0.0] * len(graph.counts)
     wins = [0.0] * len(graph.counts)
+    winning = graph.wins
+    moves = graph.moves
     for index, pool in enumerate(pools):
         held_points, held_wins = later_points[index], later_wins[index]
         drawn = 0
         earned = 0.0
         won = 0.0
-        for kind in graph.wins[index]:
-            drawn += pool[kind]
-            earned += pool[kind] * worth[index][kind]
-            won += pool[kind]
-        for kind, targets in graph.moves[index]:
-            drawn += pool[kind]
+        for kind in winning[index]:
+            copies = pool[kind]
+            drawn += copies
+            earned += copies * worth[index][kind]
+            won += copies
+        for kind, targets in moves[index]:
+            copies = pool[kind]
+            drawn += copies
             best_points, best_wins = held_points, held_wins
             for target in targets:
-                if later_points[target] > best_points:
-                    best_points, best_wins = later_points[target], later_wins[target]
-            earned += pool[kind] * best_points
-            won += pool[kind] * best_wins
+                landed = later_points[target]
+                if landed > best_points:
+                    best_points, best_wins = landed, later_wins[target]
+            earned += copies * best_points
+            won += copies * best_wins
         points[index] = (earned + (total - drawn) * held_points) / total
         wins[index] = (won + (total - drawn) * held_wins) / total
     return points, wins
@@ -408,11 +469,10 @@ def _points_curve(
     total: int,
     horizon: int,
     valuation: Valuation,
-    memo: dict[tuple, float],
 ) -> tuple[float, ...]:
     """What a win is worth given it happens, over the whole draws-remaining curve."""
     worth = [
-        {kind: _value(counts, kind, valuation, memo) for kind in graph.wins[index]}
+        {kind: _value(counts, kind, valuation) for kind in graph.wins[index]}
         for index, counts in enumerate(graph.counts)
     ]
     later = ([0.0] * len(graph.counts), [0.0] * len(graph.counts))
@@ -473,7 +533,6 @@ def _outlook(
     beam: int | None,
     max_distance: int | None,
     valuation: Valuation | None = None,
-    memo: dict[tuple, float] | None = None,
     *,
     validate: bool = True,
 ) -> Outlook:
@@ -503,11 +562,7 @@ def _outlook(
     return Outlook(
         ready=_curve(graph, pools, total, max_draws, winning=False),
         win=_curve(graph, pools, total, max_draws, winning=True),
-        points=(
-            _points_curve(graph, pools, total, max_draws, valuation, memo if memo is not None else {})
-            if valuation is not None
-            else ()
-        ),
+        points=(_points_curve(graph, pools, total, max_draws, valuation) if valuation is not None else ()),
     )
 
 
@@ -605,7 +660,6 @@ def discard_outlooks(
     # legitimately hold fewer copies than the mark, having cut the marked five.
     if valuation is not None:
         _check_valuation(counts, num_melds, valuation)
-    memo: dict[tuple, float] = {}
     held = [kind for kind in kinds_in_play(player_count) if counts[kind]]
     after = discard_shantens(counts, num_melds, held)
     keeps = min(after.values())
@@ -615,7 +669,7 @@ def discard_outlooks(
             continue
         counts[kind] -= 1
         outlooks[kind] = _outlook(
-            counts, num_melds, max_draws, visible, player_count, beam, max_distance, valuation, memo, validate=False
+            counts, num_melds, max_draws, visible, player_count, beam, max_distance, valuation, validate=False
         )
         counts[kind] += 1
     return outlooks
