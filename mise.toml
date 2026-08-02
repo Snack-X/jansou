@@ -1,6 +1,7 @@
 [tools]
 pinact = "latest"
 python = "3.12"
+rust = "latest"
 uv = "latest"
 
 [tasks.docs]

@@ -1,0 +1,15 @@
+[package]
+name = "jansou-native"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "jansou_native"
+# rlib keeps plain `cargo test` possible alongside the extension build.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.25", features = ["abi3-py310"] }
+
+[profile.release]
+lto = true
