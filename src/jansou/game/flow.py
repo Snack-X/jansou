@@ -24,6 +24,7 @@ from jansou.core.hand import Hand, Meld, MeldType
 from jansou.core.rules import RIICHI_DEPOSIT
 from jansou.core.tiles import Tile, TileKind
 from jansou.game.actions import (
+    KAN_CAP,
     Action,
     AddedKan,
     Chii,
@@ -65,7 +66,7 @@ from jansou.game.events import (
 from jansou.game.state import Discard as DiscardMark
 from jansou.game.state import GameState, Liability, PlayerState
 from jansou.scoring.context import WinContext
-from jansou.scoring.score import ScoringError, score
+from jansou.scoring.score import MANGAN_BASE, ScoringError, score
 from jansou.scoring.yaku import Yaku
 
 if TYPE_CHECKING:
@@ -77,12 +78,10 @@ if TYPE_CHECKING:
 Decide = Callable[[int, "DecisionKind", list[Action]], Action]
 Emit = Callable[[Event], None]
 
-_KAN_CAP = 4
 _TRIPLE_RON = 3
 _DOUBLE_RON = 2
 _DAISANGEN_DRAGONS = 3
 _DAISUUSHI_WINDS = 4
-_MANGAN_BASE = 2000
 _DEALER_SHARE = 2
 
 
@@ -503,7 +502,7 @@ def _apply_meld_call(state: GameState, caller: int, choice: Action, emit: Emit) 
     source = state.relative_source(discarder, caller)
     player = state.players[caller]
     if isinstance(choice, OpenKan):
-        used = [held for held in player.concealed if held.kind is tile.kind][: _KAN_CAP - 1]
+        used = [held for held in player.concealed if held.kind is tile.kind][: KAN_CAP - 1]
         meld = Meld(MeldType.DAIMINKAN, (*used, tile), called=tile, source=source)
     else:
         used = list(choice.tiles)
@@ -690,7 +689,7 @@ def _record_liability(state: GameState, caller: int, source: int, meld: Meld) ->
         state.liabilities.append(Liability(caller, source, Yaku.DAISANGEN))
     elif rules.pao_daisuushi and kind.is_wind and _wind_melds(player) == _DAISUUSHI_WINDS:
         state.liabilities.append(Liability(caller, source, Yaku.DAISUUSHI))
-    elif rules.pao_suukantsu and meld.is_kan and _kan_melds(player) == _KAN_CAP:
+    elif rules.pao_suukantsu and meld.is_kan and _kan_melds(player) == KAN_CAP:
         state.liabilities.append(Liability(caller, source, Yaku.SUUKANTSU))
 
 
@@ -755,7 +754,7 @@ def _accept_pending_riichi(state: GameState, emit: Emit) -> None:
 def _pending_abort(state: GameState) -> RyuukyokuKind | None:
     """Any accumulated-state abort that fires at finalization."""
     rules = state.rules
-    if rules.abort_suukaikan and state.kans == _KAN_CAP and _distinct_kan_makers(state) >= _DOUBLE_RON:
+    if rules.abort_suukaikan and state.kans == KAN_CAP and _distinct_kan_makers(state) >= _DOUBLE_RON:
         return RyuukyokuKind.FOUR_KANS
     if rules.abort_suucha_riichi and state.riichi_declarations == state.player_count:
         return RyuukyokuKind.FOUR_RIICHI
@@ -770,7 +769,7 @@ def _distinct_kan_makers(state: GameState) -> int:
 
 def _four_winds_discarded(state: GameState) -> bool:
     """Whether every player's uninterrupted first discard was the same wind."""
-    if state.player_count != _KAN_CAP or not state.first_go_around:
+    if state.player_count != KAN_CAP or not state.first_go_around:
         return False
     firsts = [player.discards[0].tile.kind for player in state.players if player.discards]
     if len(firsts) != state.player_count:
@@ -865,7 +864,7 @@ def _nagashi_deltas(state: GameState, nagashi: list[int], deltas: list[int]) -> 
             if seat == winner:
                 continue
             dealer_rate = state.is_dealer(seat) or state.is_dealer(winner)
-            share = _MANGAN_BASE * _DEALER_SHARE if dealer_rate else _MANGAN_BASE
+            share = MANGAN_BASE * _DEALER_SHARE if dealer_rate else MANGAN_BASE
             deltas[seat] -= share
             gains += share
         deltas[winner] += gains

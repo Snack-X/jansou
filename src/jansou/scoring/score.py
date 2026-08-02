@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from jansou.core.tiles import Tile
     from jansou.scoring.context import WinContext
 
-_MANGAN_BASE = 2000
+MANGAN_BASE = 2000
 _YAKUMAN_BASE = 8000
 _MANGAN_HAN = 5
 _HANEMAN_HAN = 7
@@ -143,7 +143,7 @@ def _ceil(value: int, step: int) -> int:
 def _limit_tier(han: int, rules: Rules) -> tuple[int, LimitTier]:
     """The base and tier of a five-or-more-han hand, fixed by han count."""
     if han == _MANGAN_HAN:
-        return _MANGAN_BASE, LimitTier.MANGAN
+        return MANGAN_BASE, LimitTier.MANGAN
     if han <= _HANEMAN_HAN:
         return 3000, LimitTier.HANEMAN
     if han <= _BAIMAN_HAN:
@@ -169,8 +169,8 @@ def base_points(han: int, fu: int, context: WinContext) -> tuple[int, LimitTier]
     if han >= _MANGAN_HAN:
         return _limit_tier(han, context.rules)
     raw = fu * 2 ** (han + 2)
-    if (context.rules.kiriage_mangan and raw == _KIRIAGE_RAW) or raw >= _MANGAN_BASE:
-        return _MANGAN_BASE, LimitTier.MANGAN
+    if (context.rules.kiriage_mangan and raw == _KIRIAGE_RAW) or raw >= MANGAN_BASE:
+        return MANGAN_BASE, LimitTier.MANGAN
     return raw, LimitTier.NONE
 
 

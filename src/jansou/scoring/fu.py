@@ -23,7 +23,7 @@ _MENZEN_RON = 10
 _TSUMO = 2
 _WAIT_FU = 2
 _PAIR_FU = 2
-_CHIITOI_FU = 25
+CHIITOI_FU = 25
 _KOKUSHI_FU = 30
 _PINFU_TSUMO_FU = 20
 _PINFU_RON_FU = 30
@@ -183,7 +183,7 @@ def compute_fu(decomp: Decomposition, hand: Hand, context: WinContext) -> FuBrea
         The fu total and the components that produced it.
     """
     if decomp.shape is Shape.CHIITOI:
-        return _fixed(_CHIITOI_FU, "chiitoitsu")
+        return _fixed(CHIITOI_FU, "chiitoitsu")
     if decomp.shape is Shape.KOKUSHI:
         return _fixed(_KOKUSHI_FU, "kokushi")
     if is_pinfu_shape(decomp, hand, context):

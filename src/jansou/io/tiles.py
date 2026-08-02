@@ -8,12 +8,8 @@ MJAI names tiles as strings and reuses the core notation parser.
 
 from __future__ import annotations
 
-from jansou.core.tiles import Suit, Tile, TileKind
-
-#: The three 136-tile indices that name red fives, one per suit.
-RED_136 = frozenset({16, 52, 88})
-
-_SLOTS_PER_KIND = 4
+from jansou.core.notation import RED_136
+from jansou.core.tiles import TILES_PER_KIND, Suit, Tile, TileKind
 
 
 def tile_from_136(index: int) -> Tile:
@@ -31,18 +27,18 @@ def tile_from_136(index: int) -> Tile:
     Raises:
         ValueError: If ``index`` is not an integer in the range 0-135.
     """
-    if not 0 <= index < _SLOTS_PER_KIND * len(TileKind):
+    if not 0 <= index < TILES_PER_KIND * len(TileKind):
         raise ValueError(f"136-tile index must be in 0-135, got {index}")
     return _TILES_136[index]
 
 
 _TILES_136 = tuple(
-    Tile(TileKind(index // _SLOTS_PER_KIND), red=index in RED_136) for index in range(_SLOTS_PER_KIND * len(TileKind))
+    Tile(TileKind(index // TILES_PER_KIND), red=index in RED_136) for index in range(TILES_PER_KIND * len(TileKind))
 )
 
 
 #: The 136-tile red-five index of each red-carrying kind, by its kind value.
-_RED_136_OF_KIND = {index // _SLOTS_PER_KIND: index for index in RED_136}
+_RED_136_OF_KIND = {index // TILES_PER_KIND: index for index in RED_136}
 
 
 def tile_to_136(tile: Tile) -> int:
@@ -59,7 +55,7 @@ def tile_to_136(tile: Tile) -> int:
     """
     if tile.red:
         return _RED_136_OF_KIND[tile.kind]
-    base = tile.kind * _SLOTS_PER_KIND
+    base = tile.kind * TILES_PER_KIND
     # Copy 0 of a five is its red slot, so a plain five takes the next copy.
     return base + 1 if tile.kind in _RED_136_OF_KIND else base
 

@@ -14,12 +14,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from jansou.io.paifu import Paifu, replay_round
+from jansou.scoring.fu import CHIITOI_FU
 from jansou.scoring.score import ScoringError, score
 
 if TYPE_CHECKING:
     from jansou.io.paifu import AgariRecord
-
-_CHIITOITSU_FU = 25
 
 
 @dataclass(frozen=True)
@@ -79,7 +78,7 @@ def check_win(record: AgariRecord) -> Verdict:
 def _fu_matches(computed: int, expected: int) -> bool:
     """Whether computed fu agrees, allowing the log's fixed-fu conventions."""
     # A kazoe yakuman reports 0 fu; chiitoitsu reports 25. (True yakuman skip fu in the caller.)
-    return expected in (0, _CHIITOITSU_FU) or computed == expected
+    return expected in (0, CHIITOI_FU) or computed == expected
 
 
 def check_paifu(paifu: Paifu) -> list[Verdict]:

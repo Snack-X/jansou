@@ -27,7 +27,9 @@ if TYPE_CHECKING:
     from jansou.game.state import GameState, PlayerState
     from jansou.scoring.score import ScoreResult
 
-_KAN_CAP = 4
+#: Tiles in a kan, and the kans that (spread across seats) abort the round.
+KAN_CAP = 4
+
 _KYUUSHU_MIN = 9
 _PON_SIZE = 2
 _KAN_HAND_TILES = 3
@@ -271,7 +273,7 @@ def _pair_combos(tiles: list[Tile]) -> list[tuple[Tile, Tile]]:
 
 def _can_kan(state: GameState) -> bool:
     """Whether a kan may be declared: under the cap and with a live tile left."""
-    return state.kans < _KAN_CAP and state.wall.live_draws_remaining >= 1
+    return state.kans < KAN_CAP and state.wall.live_draws_remaining >= 1
 
 
 def _can_extract(state: GameState) -> bool:
@@ -345,7 +347,7 @@ def _kan_preserves_waits(state: GameState, seat: int, kind: TileKind) -> bool:
     player = state.players[seat]
     before = waits_counts(counts_by_kind(player.concealed), tuple(player.melds), player_count=state.player_count)
     after_concealed = [tile for tile in player.concealed if tile.kind is not kind]
-    after_melds = (*player.melds, Meld(MeldType.ANKAN, (Tile(kind),) * _KAN_CAP))
+    after_melds = (*player.melds, Meld(MeldType.ANKAN, (Tile(kind),) * KAN_CAP))
     after = waits_counts(counts_by_kind(after_concealed), after_melds, player_count=state.player_count)
     return before == after
 
@@ -368,7 +370,7 @@ def _concealed_kans(state: GameState, seat: int) -> list[Action]:
     if not _can_kan(state):
         return []
     counts = counts_by_kind(_hand_tiles(state.players[seat]))
-    return [ClosedKan(TileKind(kind)) for kind, count in enumerate(counts) if count == _KAN_CAP]
+    return [ClosedKan(TileKind(kind)) for kind, count in enumerate(counts) if count == KAN_CAP]
 
 
 def _added_kans(state: GameState, seat: int) -> list[Action]:

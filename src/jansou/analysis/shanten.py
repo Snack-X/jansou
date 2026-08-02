@@ -27,7 +27,7 @@ from importlib import resources
 from itertools import islice
 from typing import TYPE_CHECKING
 
-from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS
+from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS, PAIR_SIZE, SET_SIZE
 from jansou.core.tiles import TILES_PER_KIND, YAOCHUU_KINDS, counts_by_kind
 
 if TYPE_CHECKING:
@@ -36,8 +36,6 @@ if TYPE_CHECKING:
     from jansou.core.hand import Hand
     from jansou.core.tiles import TileKind
 
-_PAIR_SIZE = 2
-_SET_SIZE = 3
 _SUIT_RANKS = 9
 _FULL_CONCEALED = (FULL_HAND_SIZE, FULL_HAND_SIZE + 1)
 _UNREACHED = 99  # above any real distance; never survives a minimum
@@ -51,7 +49,7 @@ _BLOCKS = ((0, 9), (9, 18), (18, 27), (27, 34))
 
 def _legal_sizes(num_melds: int) -> tuple[int, int]:
     """The resting and holding concealed-tile counts for a hand with this many melds."""
-    rest = FULL_HAND_SIZE - _SET_SIZE * num_melds
+    rest = FULL_HAND_SIZE - SET_SIZE * num_melds
     return rest, rest + 1
 
 
@@ -68,14 +66,14 @@ def _distance_vector(block: tuple[int, ...], *, is_honor: bool) -> tuple[int, ..
     """
     costs = {(0, 0, 0, 0): 0}
     for i, held in enumerate(block):
-        can_run = not is_honor and i <= len(block) - _SET_SIZE
+        can_run = not is_honor and i <= len(block) - SET_SIZE
         next_costs: dict[tuple[int, int, int, int], int] = {}
         for (sets, pair, due_now, due_next), cost in costs.items():
             carried = due_now + due_next
-            for triplet in range(min(1, MAX_MELDS - sets, (TILES_PER_KIND - carried) // _SET_SIZE) + 1):
-                used_fixed = carried + _SET_SIZE * triplet
-                for head in range(min(1 - pair, (TILES_PER_KIND - used_fixed) // _PAIR_SIZE) + 1):
-                    used_base = used_fixed + _PAIR_SIZE * head
+            for triplet in range(min(1, MAX_MELDS - sets, (TILES_PER_KIND - carried) // SET_SIZE) + 1):
+                used_fixed = carried + SET_SIZE * triplet
+                for head in range(min(1 - pair, (TILES_PER_KIND - used_fixed) // PAIR_SIZE) + 1):
+                    used_base = used_fixed + PAIR_SIZE * head
                     max_runs = min(TILES_PER_KIND - used_base, MAX_MELDS - sets - triplet) if can_run else 0
                     for runs in range(max_runs + 1):
                         added = cost + max(0, used_base + runs - held)
@@ -167,7 +165,7 @@ def _chiitoi(counts: list[int]) -> int:
     for count in counts:
         if count:
             kinds += 1
-            if count >= _PAIR_SIZE:
+            if count >= PAIR_SIZE:
                 pairs += 1
     missing_kinds = _CHIITOI_DISTINCT - kinds
     return _CHIITOI_TARGET_PAIRS - pairs + (max(0, missing_kinds))
@@ -180,7 +178,7 @@ def _kokushi(counts: list[int]) -> int:
         count = counts[kind]
         if count:
             present += 1
-            if count >= _PAIR_SIZE:
+            if count >= PAIR_SIZE:
                 has_pair = 1
     return _KOKUSHI_KINDS - present - has_pair
 
@@ -292,13 +290,13 @@ def _probed_shantens(counts: list[int], num_melds: int, kinds: tuple[TileKind, .
         for count in counts:
             if count:
                 distinct += 1
-                if count >= _PAIR_SIZE:
+                if count >= PAIR_SIZE:
                     pairs += 1
         present = yao_pairs = 0
         for yao in YAOCHUU_KINDS:
             if counts[yao]:
                 present += 1
-                if counts[yao] >= _PAIR_SIZE:
+                if counts[yao] >= PAIR_SIZE:
                     yao_pairs += 1
     result: dict[TileKind, int] = {}
     for kind in kinds:
@@ -311,13 +309,13 @@ def _probed_shantens(counts: list[int], num_melds: int, kinds: tuple[TileKind, .
         if closed_forms:
             held = counts[kind]
             after = held + delta
-            probed_pairs = pairs + (after >= _PAIR_SIZE) - (held >= _PAIR_SIZE)
+            probed_pairs = pairs + (after >= PAIR_SIZE) - (held >= PAIR_SIZE)
             missing_kinds = _CHIITOI_DISTINCT - distinct - (after > 0) + (held > 0)
             chiitoi = _CHIITOI_TARGET_PAIRS - probed_pairs + max(0, missing_kinds)
             best = min(best, chiitoi)
             if _IS_YAOCHUU[kind]:
                 probed_present = present + (after > 0) - (held > 0)
-                probed_yao_pairs = yao_pairs + (after >= _PAIR_SIZE) - (held >= _PAIR_SIZE)
+                probed_yao_pairs = yao_pairs + (after >= PAIR_SIZE) - (held >= PAIR_SIZE)
                 kokushi = _KOKUSHI_KINDS - probed_present - (probed_yao_pairs > 0)
             else:
                 kokushi = _KOKUSHI_KINDS - present - (yao_pairs > 0)
@@ -336,9 +334,9 @@ _RADIX = TILES_PER_KIND + 1
 _HONOR_WIDTH = _BLOCKS[-1][1] - _BLOCKS[-1][0]
 _UNFILLED = -1
 _TABLE_RESOURCE = "shanten_blocks.bin"
-_TABLE_MAGIC = b"JSBT"
+TABLE_MAGIC = b"JSBT"
 _VECTOR_WIDTH = 10
-_SENTINEL_BYTE = 255
+SENTINEL_BYTE = 255
 
 _PROBE_MEMO_SIZE = 60_000
 """Whole probe sweeps the memo holds before evicting.
@@ -379,15 +377,15 @@ def _parse_tables(payload: bytes) -> tuple[list[int], list[int]]:
     Raises:
         ValueError: If the payload is not a well-formed table file.
     """
-    if payload[: len(_TABLE_MAGIC)] != _TABLE_MAGIC:
+    if payload[: len(TABLE_MAGIC)] != TABLE_MAGIC:
         raise ValueError("shanten table file lacks its magic prefix")
-    stored = payload[len(_TABLE_MAGIC)]
-    offset = len(_TABLE_MAGIC) + 1
+    stored = payload[len(TABLE_MAGIC)]
+    offset = len(TABLE_MAGIC) + 1
     suit_slots = _RADIX**_SUIT_RANKS
     honor_slots = _RADIX**_HONOR_WIDTH
     if len(payload) != offset + stored * _VECTOR_WIDTH + suit_slots + honor_slots:
         raise ValueError("shanten table file has the wrong length")
-    translate = [_UNFILLED] * (_SENTINEL_BYTE + 1)
+    translate = [_UNFILLED] * (SENTINEL_BYTE + 1)
     for index in range(stored):
         vector = tuple(payload[offset : offset + _VECTOR_WIDTH])
         translate[index] = _intern(vector)
@@ -528,7 +526,7 @@ def _closed_probes(c: list[int], delta: int, result: list[int | None]) -> None:
         count = c[kind]
         if count:
             present += 1
-            if count >= _PAIR_SIZE:
+            if count >= PAIR_SIZE:
                 yao_pairs += 1
     kokushi_still = _KOKUSHI_KINDS - present - (yao_pairs > 0)
     for kind, standard in enumerate(result):
@@ -536,12 +534,12 @@ def _closed_probes(c: list[int], delta: int, result: list[int | None]) -> None:
             continue
         held = c[kind]
         after = held + delta
-        probed_pairs = pairs + (after >= _PAIR_SIZE) - (held >= _PAIR_SIZE)
+        probed_pairs = pairs + (after >= PAIR_SIZE) - (held >= PAIR_SIZE)
         missing = _CHIITOI_DISTINCT - distinct - (after > 0) + (held > 0)
         chiitoi = _CHIITOI_TARGET_PAIRS - probed_pairs + max(0, missing)
         if _IS_YAOCHUU[kind]:
             probed_present = present + (after > 0) - (held > 0)
-            probed_pairs = yao_pairs + (after >= _PAIR_SIZE) - (held >= _PAIR_SIZE)
+            probed_pairs = yao_pairs + (after >= PAIR_SIZE) - (held >= PAIR_SIZE)
             kokushi = _KOKUSHI_KINDS - probed_present - (probed_pairs > 0)
         else:
             kokushi = kokushi_still

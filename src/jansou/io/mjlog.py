@@ -313,8 +313,6 @@ def _decode_kan(code: int, offset: int) -> Meld:
 
 # --- Writing ----------------------------------------------------------------
 
-_DRAW_TAGS = "TUVW"
-_DISCARD_TAGS = "DEFG"
 _KITA_CODE = 0x20
 _FIVE_KINDS = frozenset({TileKind.M5, TileKind.P5, TileKind.S5})
 _OFFSET_OF_SOURCE = {source: offset for offset, source in _SOURCE_OF_OFFSET.items()}
@@ -371,9 +369,9 @@ def _dump_event(event: Event, last_draw: dict[int, int]) -> str:
     if isinstance(event, Draw):
         index = tile_to_136(event.tile)
         last_draw[event.seat] = index
-        return f"<{_DRAW_TAGS[event.seat]}{index}/>"
+        return f"<{_DRAW_PREFIXES[event.seat]}{index}/>"
     if isinstance(event, Discard):
-        tag = f"<{_DISCARD_TAGS[event.seat]}{_discard_136(event, last_draw.pop(event.seat, None))}/>"
+        tag = f"<{_DISCARD_PREFIXES[event.seat]}{_discard_136(event, last_draw.pop(event.seat, None))}/>"
         if event.riichi:
             return f'<REACH who="{event.seat}" step="1"/>{tag}'
         return tag

@@ -18,7 +18,10 @@ MAX_MELDS = 4
 #: Concealed tiles of a meldless hand at rest.
 FULL_HAND_SIZE = 13
 
-_TILES_PER_MELD_SLOT = 3
+#: Tiles in a completed set, and in the pair.
+SET_SIZE = 3
+PAIR_SIZE = 2
+
 _MELD_SIZE = {"CHII": 3, "PON": 3, "DAIMINKAN": 4, "ANKAN": 4, "SHOUMINKAN": 4}
 _RUN_LENGTH = 3
 
@@ -45,6 +48,10 @@ class CallSource(Enum):
     KAMICHA = auto()  # left
     TOIMEN = auto()  # across
     SHIMOCHA = auto()  # right
+
+
+#: The call source named by the relative seat gap ``(caller - source) % player_count``.
+SOURCE_OF_RELATIVE = {1: CallSource.KAMICHA, 2: CallSource.TOIMEN, 3: CallSource.SHIMOCHA}
 
 
 @dataclass(frozen=True)
@@ -163,7 +170,7 @@ class Hand:
     @property
     def rest_size(self) -> int:
         """The concealed-tile count this hand has at rest, given its melds."""
-        return FULL_HAND_SIZE - _TILES_PER_MELD_SLOT * len(self.melds)
+        return FULL_HAND_SIZE - SET_SIZE * len(self.melds)
 
     def validate(self, rules: Rules | None = None) -> None:
         """Check the structural hand constraints.

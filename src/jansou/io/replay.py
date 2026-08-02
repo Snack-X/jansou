@@ -54,7 +54,7 @@ from jansou.game.events import (
     NorthExtraction,
 )
 from jansou.game.flow import DecisionKind, Position, deal_steps, new_deal
-from jansou.game.wall import DEAD_WALL_SIZE, Wall
+from jansou.game.wall import DEAD_WALL_REPLACEMENTS, DEAD_WALL_SIZE, DEAL_ROUNDS, DORA_SLOTS, URA_SLOTS, Wall
 from jansou.io.paifu import Call, Discard, DoraReveal, Draw, Kita, Ryuukyoku, canonical_kind
 
 if TYPE_CHECKING:
@@ -65,13 +65,6 @@ if TYPE_CHECKING:
     from jansou.game.events import Event as GameEvent
     from jansou.game.flow import DecisionPoint
     from jansou.io.paifu import Event, Paifu, RoundLog
-
-#: The wall's documented dead-wall mapping: replacement draws sit at s1..s4,
-#: dora indicators at s5, s7, s9, s11, s13, and ura indicators beneath them.
-_DEAD_WALL_REPLACEMENTS = 4
-_DORA_SLOTS = (4, 6, 8, 10, 12)
-_URA_SLOTS = (5, 7, 9, 11, 13)
-_DEAL_PATTERN = (4, 4, 4, 1)
 
 _CLAIM_TYPES = (MeldType.PON, MeldType.CHII, MeldType.DAIMINKAN)
 
@@ -235,7 +228,7 @@ class _WallBuilder:
             raise ReplayError("a dealt hand does not hold thirteen tiles", self._round_index)
         cursor = DEAD_WALL_SIZE
         taken = [0] * len(self._round.hands)
-        for count in _DEAL_PATTERN:
+        for count in DEAL_ROUNDS:
             for seat, hand in enumerate(self._round.hands):
                 for _ in range(count):
                     self._place(cursor, hand[taken[seat]])
@@ -245,13 +238,13 @@ class _WallBuilder:
     def _place_indicators(self) -> None:
         """Pin the revealed dora indicators and any recorded ura beneath them."""
         reveals = [event.indicator for event in self._round.events if isinstance(event, DoraReveal)]
-        if len(reveals) >= len(_DORA_SLOTS):
+        if len(reveals) >= len(DORA_SLOTS):
             raise ReplayError("the record reveals more dora indicators than the wall holds", self._round_index)
-        self._place(_DORA_SLOTS[0], self._round.initial_dora)
+        self._place(DORA_SLOTS[0], self._round.initial_dora)
         for offset, indicator in enumerate(reveals):
-            self._place(_DORA_SLOTS[offset + 1], indicator)
+            self._place(DORA_SLOTS[offset + 1], indicator)
         for offset, indicator in enumerate(self._recorded_ura()):
-            self._place(_URA_SLOTS[offset], indicator)
+            self._place(URA_SLOTS[offset], indicator)
 
     def _recorded_ura(self) -> tuple[Tile, ...]:
         """The ura indicators the outcome revealed, when any win shows them."""
@@ -278,9 +271,9 @@ class _WallBuilder:
 
     def _replacement_slot(self, count: int) -> int:
         """The slot of the count-th replacement: the dead wall, then the cut tail."""
-        if count <= _DEAD_WALL_REPLACEMENTS:
+        if count <= DEAD_WALL_REPLACEMENTS:
             return count - 1
-        return len(self._slots) - count + _DEAD_WALL_REPLACEMENTS
+        return len(self._slots) - count + DEAD_WALL_REPLACEMENTS
 
     def _fill(self) -> tuple[Tile, ...]:
         """The finished sequence, unused slots filled from the remaining set."""

@@ -19,20 +19,18 @@ import time
 import zlib
 from pathlib import Path
 
-from jansou.analysis.shanten import _distance_vector
+from jansou.analysis.shanten import SENTINEL_BYTE, TABLE_MAGIC, _distance_vector
 
 RADIX = 5
 SUIT_WIDTH = 9
 HONOR_WIDTH = 7
 MAX_BLOCK_TILES = 14
-MAGIC = b"JSBT"
-SENTINEL = 255
 TARGET = Path(__file__).resolve().parent.parent / "src" / "jansou" / "analysis" / "shanten_blocks.bin"
 
 
 def fill(width: int, classes: dict[tuple[int, ...], int], vectors: list[tuple[int, ...]]) -> bytearray:
     """One table's bytes: each legal block's vector class, sentinel elsewhere."""
-    table = bytearray([SENTINEL]) * RADIX**width
+    table = bytearray([SENTINEL_BYTE]) * RADIX**width
     block = [0] * width
 
     def walk(position: int, index: int, left: int) -> None:
@@ -61,9 +59,9 @@ def main() -> None:
     vectors: list[tuple[int, ...]] = []
     suit = fill(SUIT_WIDTH, classes, vectors)
     honor = fill(HONOR_WIDTH, classes, vectors)
-    assert len(vectors) < SENTINEL, "vector classes must fit a byte with the sentinel spare"
+    assert len(vectors) < SENTINEL_BYTE, "vector classes must fit a byte with the sentinel spare"
 
-    payload = bytearray(MAGIC)
+    payload = bytearray(TABLE_MAGIC)
     payload.append(len(vectors))
     for vector in vectors:
         payload.extend(vector)
@@ -72,8 +70,8 @@ def main() -> None:
     TARGET.write_bytes(zlib.compress(bytes(payload), 9))
 
     print(
-        f"{len(vectors)} vectors over {sum(1 for b in suit if b != SENTINEL)} suit and "
-        f"{sum(1 for b in honor if b != SENTINEL)} honor blocks -> "
+        f"{len(vectors)} vectors over {sum(1 for b in suit if b != SENTINEL_BYTE)} suit and "
+        f"{sum(1 for b in honor if b != SENTINEL_BYTE)} honor blocks -> "
         f"{TARGET.stat().st_size / 1024:.0f} KiB in {time.perf_counter() - started:.0f}s"
     )
 

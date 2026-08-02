@@ -22,6 +22,16 @@ import sys
 import time
 from pathlib import Path
 
+from protocol import (
+    ProtocolError,
+    action_to_wire,
+    decision_kind_to_wire,
+    encode_event,
+    read_message,
+    send_message,
+)
+from table import SEAT_WINDS, TableView, color_enabled, render
+
 from jansou.core.rules import PRESETS, Rules, preset
 from jansou.game.agents import (
     EfficiencyAgent,
@@ -40,18 +50,7 @@ from jansou.io.mjai import dump_mjai
 from jansou.io.mjlog import dump_mjlog
 from jansou.io.tenhou_json import dump_tenhou_json
 
-from protocol import (
-    ProtocolError,
-    action_to_wire,
-    decision_kind_to_wire,
-    encode_event,
-    read_message,
-    send_message,
-)
-from table import TableView, color_enabled, render
-
 #: Starting seat winds, for the seating announcement.
-_SEAT_WINDS = ("E", "S", "W", "N")
 
 #: Builders for the agents that fill seats no client took.
 FILL_AGENTS = {
@@ -94,14 +93,10 @@ class RemoteSeat:
         )
         reply = read_message(self.reader)
         if reply["type"] != "action":
-            raise ProtocolError(
-                f"{self.name}: expected an 'action' reply, got {reply['type']!r}"
-            )
+            raise ProtocolError(f"{self.name}: expected an 'action' reply, got {reply['type']!r}")
         index = reply.get("index")
         if not isinstance(index, int) or not 0 <= index < len(request.actions):
-            raise ProtocolError(
-                f"{self.name}: action index {index!r} is not in 0..{len(request.actions) - 1}"
-            )
+            raise ProtocolError(f"{self.name}: action index {index!r} is not in 0..{len(request.actions) - 1}")
         return request.actions[index]
 
     def send(self, message: dict) -> None:
@@ -173,9 +168,7 @@ def accept_clients(host: str, port: int, count: int) -> list[RemoteSeat]:
     return clients
 
 
-def save_paifu(
-    env: Environment, directory: Path, save_format: str, stem: str
-) -> Path:
+def save_paifu(env: Environment, directory: Path, save_format: str, stem: str) -> Path:
     """Write the finished game's record into the directory, in the chosen format."""
     extension, dump = PAIFU_FORMATS[save_format]
     path = directory / f"{stem}{extension}"
@@ -244,9 +237,7 @@ def play_session(
         }
         for seat in seats:
             seat.send(report)
-        standing = ", ".join(
-            f"{seats[s].name} {result.scores[s]}" for s in result.ranking
-        )
+        standing = ", ".join(f"{seats[s].name} {result.scores[s]}" for s in result.ranking)
         print(f"game {game_index + 1}/{games}: {standing}")
         if save_dir is not None:
             stem = f"{session_stamp}-game-{game_index + 1:03d}"
@@ -276,27 +267,17 @@ def play_session(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Host a jansou table over a local socket."
-    )
-    parser.add_argument(
-        "--host", default="127.0.0.1", help="address to listen on (default: 127.0.0.1)"
-    )
-    parser.add_argument(
-        "--port", type=int, default=15151, help="port to listen on (default: 15151)"
-    )
-    parser.add_argument(
-        "--clients", type=int, default=1, help="remote seats to wait for (default: 1)"
-    )
+    parser = argparse.ArgumentParser(description="Host a jansou table over a local socket.")
+    parser.add_argument("--host", default="127.0.0.1", help="address to listen on (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=15151, help="port to listen on (default: 15151)")
+    parser.add_argument("--clients", type=int, default=1, help="remote seats to wait for (default: 1)")
     parser.add_argument(
         "--fill",
         choices=sorted(FILL_AGENTS),
         default="smart",
         help="built-in agent for the remaining seats (default: smart)",
     )
-    parser.add_argument(
-        "--games", type=int, default=1, help="games to play back to back (default: 1)"
-    )
+    parser.add_argument("--games", type=int, default=1, help="games to play back to back (default: 1)")
     parser.add_argument(
         "--seed",
         type=int,
@@ -322,9 +303,7 @@ def main() -> int:
         default="tenhou",
         help="paifu format for --save (default: tenhou)",
     )
-    parser.add_argument(
-        "--verbose", action="store_true", help="print every event as it happens"
-    )
+    parser.add_argument("--verbose", action="store_true", help="print every event as it happens")
     parser.add_argument(
         "--display",
         action="store_true",
@@ -340,20 +319,14 @@ def main() -> int:
 
     rules = preset(args.preset) if args.preset else Rules()
     if not 0 <= args.clients <= rules.player_count:
-        parser.error(
-            f"--clients must be between 0 and {rules.player_count} for these rules"
-        )
+        parser.error(f"--clients must be between 0 and {rules.player_count} for these rules")
     if args.save is not None:
         args.save.mkdir(parents=True, exist_ok=True)
 
     seats: list = accept_clients(args.host, args.port, args.clients)
     for fill_index in range(rules.player_count - args.clients):
         agent_seed = None if args.seed is None else args.seed * 1000 + fill_index
-        seats.append(
-            LocalSeat(
-                FILL_AGENTS[args.fill](agent_seed), f"{args.fill}-{fill_index + 1}"
-            )
-        )
+        seats.append(LocalSeat(FILL_AGENTS[args.fill](agent_seed), f"{args.fill}-{fill_index + 1}"))
 
     # Draw seats at random (reproducibly under --seed), then tell each client its seat.
     random.Random(args.seed).shuffle(seats)
@@ -366,7 +339,7 @@ def main() -> int:
                 "games": args.games,
             }
         )
-        print(f"seat {seat_index} ({_SEAT_WINDS[seat_index]}): {seat.name}")
+        print(f"seat {seat_index} ({SEAT_WINDS[seat_index]}): {seat.name}")
 
     display = LiveDisplay(args.delay) if args.display else None
     try:

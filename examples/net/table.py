@@ -14,11 +14,12 @@ import sys
 
 from protocol import tile_from_wire
 
-_RIICHI_DEPOSIT = 1000
-_DEAD_WALL = 14
-_HAND_SIZE = 13
+from jansou.core.hand import FULL_HAND_SIZE
+from jansou.core.rules import RIICHI_DEPOSIT
+from jansou.game.wall import DEAD_WALL_SIZE
+
 _TILE_TOTAL = {3: 108, 4: 136}
-_SEAT_WINDS = ("E", "S", "W", "N")
+SEAT_WINDS = ("E", "S", "W", "N")
 _ROUND_NAMES = {"east": "East", "south": "South", "west": "West", "north": "North"}
 
 _SUIT_COLOR = {"m": "31", "p": "34", "s": "32"}
@@ -42,7 +43,7 @@ class SeatView:
     def __init__(self, score: int, hand: list[str] | None) -> None:
         self.score = score
         self.hand = hand
-        self.hidden_count = 0 if hand is not None else _HAND_SIZE
+        self.hidden_count = 0 if hand is not None else FULL_HAND_SIZE
         self.drawn: str | None = None
         self.melds: list[tuple[str, list[str]]] = []
         self.river: list[tuple[str, bool, bool]] = []  # (token, riichi, tsumogiri)
@@ -105,18 +106,14 @@ class TableView:
         self.final = None
 
     def _on_deal_start(self, data: dict) -> None:
-        self.seats = [
-            SeatView(score, hand) for score, hand in zip(data["scores"], data["hands"])
-        ]
+        self.seats = [SeatView(score, hand) for score, hand in zip(data["scores"], data["hands"])]
         self.dealer = data["dealer"]
         self.round_wind = data["round_wind"]
         self.round_number = data["round_number"]
         self.honba = data["honba"]
-        self.sticks = data["deposits"] // _RIICHI_DEPOSIT
+        self.sticks = data["deposits"] // RIICHI_DEPOSIT
         self.dora = [data["dora_indicator"]]
-        self.wall = (
-            _TILE_TOTAL[self.player_count] - _HAND_SIZE * self.player_count - _DEAD_WALL
-        )
+        self.wall = _TILE_TOTAL[self.player_count] - FULL_HAND_SIZE * self.player_count - DEAD_WALL_SIZE
         self.turn = None
         self.last_discard = None
         self.outcomes = []
@@ -152,11 +149,7 @@ class TableView:
     def _upgrade_pon(self, seat: SeatView, tiles: list[str]) -> None:
         """Turn the matching pon into the kan, removing the added tile from hand."""
         kind = _kind_of(tiles[0])
-        index = next(
-            i
-            for i, (kind_, meld) in enumerate(seat.melds)
-            if kind_ == "pon" and _kind_of(meld[0]) == kind
-        )
+        index = next(i for i, (kind_, meld) in enumerate(seat.melds) if kind_ == "pon" and _kind_of(meld[0]) == kind)
         added = list(tiles)
         for token in seat.melds[index][1]:
             added.remove(token)
@@ -174,7 +167,7 @@ class TableView:
     def _on_riichi_accepted(self, data: dict) -> None:
         seat = self.seats[data["seat"]]
         seat.riichi = True
-        seat.score -= _RIICHI_DEPOSIT
+        seat.score -= RIICHI_DEPOSIT
         self.sticks += 1
 
     def _on_score_change(self, data: dict) -> None:
@@ -191,7 +184,7 @@ class TableView:
         self.final = data
 
     def seat_wind(self, seat: int) -> str:
-        return _SEAT_WINDS[(seat - self.dealer) % self.player_count]
+        return SEAT_WINDS[(seat - self.dealer) % self.player_count]
 
 
 # --- Rendering ---------------------------------------------------------------
@@ -224,9 +217,7 @@ def _river(entries: list[tuple[str, bool, bool]], *, color: bool) -> str:
     return " ".join(parts)
 
 
-def render(
-    view: TableView, *, viewpoint: int | None = None, color: bool = False
-) -> str:
+def render(view: TableView, *, viewpoint: int | None = None, color: bool = False) -> str:
     """The whole table as text, one block per seat.
 
     Args:
@@ -246,9 +237,7 @@ def render(
         name = view.names[index] if index < len(view.names) else f"seat {index}"
         you = " (you)" if viewpoint == index else ""
         flags = " riichi" if seat.riichi else ""
-        lines.append(
-            f"{marker}{view.seat_wind(index)}  {name:<16} {seat.score:>7}{flags}{you}"
-        )
+        lines.append(f"{marker}{view.seat_wind(index)}  {name:<16} {seat.score:>7}{flags}{you}")
         if seat.hand is None:
             hand = f"[{seat.hidden_count} hidden]"
         else:
@@ -256,9 +245,7 @@ def render(
             if seat.drawn is not None:
                 hand += f"  [{_paint(seat.drawn, color=color)}]"
         lines.append(f"     hand:  {hand}")
-        extras = [
-            f"{kind} {_tiles(tokens, color=color)}" for kind, tokens in seat.melds
-        ]
+        extras = [f"{kind} {_tiles(tokens, color=color)}" for kind, tokens in seat.melds]
         if seat.nuki:
             extras.append(f"nuki ×{seat.nuki}")
         if extras:
@@ -278,9 +265,7 @@ def describe_outcome(data: dict, names: list[str], *, color: bool = False) -> st
         ready = ", ".join(names[seat] for seat in data["counted_ready"]) or "nobody"
         return f"— draw ({kind}); tenpai: {ready}"
     winner = names[data["seat"]]
-    source = (
-        "tsumo" if data["from_seat"] is None else f"ron off {names[data['from_seat']]}"
-    )
+    source = "tsumo" if data["from_seat"] is None else f"ron off {names[data['from_seat']]}"
     yaku = ", ".join(f"{value['name']} {value['value']}" for value in data["yaku"])
     dora = data["dora"]
     bonuses = [f"{label} {count}" for label, count in dora.items() if count]
@@ -289,9 +274,7 @@ def describe_outcome(data: dict, names: list[str], *, color: bool = False) -> st
         value += f" ({data['limit'].replace('_', ' ')})"
     hand = data["hand"]
     tiles = _tiles(sorted(hand["concealed"], key=_sort_key), color=color)
-    melds = "".join(
-        f"  +{_tiles(meld['tiles'], color=color)}" for meld in hand["melds"]
-    )
+    melds = "".join(f"  +{_tiles(meld['tiles'], color=color)}" for meld in hand["melds"])
     lines = [
         f"— {winner} wins {data['points']} by {source} on {_paint(data['winning_tile'], color=color)}",
         f"  {tiles}{melds}",
@@ -311,9 +294,7 @@ def menu_order(actions: list[dict]) -> list[int]:
     """
     order = list(range(len(actions)))
     for tag in ("riichi", "discard"):
-        positions = [
-            index for index, action in enumerate(actions) if action["type"] == tag
-        ]
+        positions = [index for index, action in enumerate(actions) if action["type"] == tag]
         by_tile = sorted(
             positions,
             key=lambda index: (

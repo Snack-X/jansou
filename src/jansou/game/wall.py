@@ -25,17 +25,17 @@ if TYPE_CHECKING:
 DEAD_WALL_SIZE = 14
 
 #: The 0-based dead-wall slots for the dora and ura indicators.
-_DORA_SLOTS = (4, 6, 8, 10, 12)
-_URA_SLOTS = (5, 7, 9, 11, 13)
+DORA_SLOTS = (4, 6, 8, 10, 12)
+URA_SLOTS = (5, 7, 9, 11, 13)
 
 #: How many indicators the five slots can ever show.
 _MAX_INDICATORS = 5
 
 #: Replacement draws taken from the dead wall proper, before the cut tail.
-_DEAD_WALL_REPLACEMENTS = 4
+DEAD_WALL_REPLACEMENTS = 4
 
 #: The traditional deal: three rounds of four tiles, then one of a single tile.
-_DEAL_ROUNDS = (4, 4, 4, 1)
+DEAL_ROUNDS = (4, 4, 4, 1)
 
 
 class WallError(RuntimeError):
@@ -84,12 +84,12 @@ class Wall:
     @property
     def dora_indicators(self) -> tuple[Tile, ...]:
         """The face-up dora indicators, in reveal order."""
-        return tuple(self._sequence[_DORA_SLOTS[i]] for i in range(self._revealed))
+        return tuple(self._sequence[DORA_SLOTS[i]] for i in range(self._revealed))
 
     @property
     def ura_indicators(self) -> tuple[Tile, ...]:
         """The ura indicators beneath the face-up dora indicators, in order."""
-        return tuple(self._sequence[_URA_SLOTS[i]] for i in range(self._revealed))
+        return tuple(self._sequence[URA_SLOTS[i]] for i in range(self._revealed))
 
     def deal(self, player_count: int) -> tuple[tuple[Tile, ...], ...]:
         """Draw each player's thirteen starting tiles in the 4-4-4-1 pattern.
@@ -101,7 +101,7 @@ class Wall:
             Each seat's thirteen dealt tiles, indexed by seat.
         """
         hands: list[list[Tile]] = [[] for _ in range(player_count)]
-        for count in _DEAL_ROUNDS:
+        for count in DEAL_ROUNDS:
             for seat in range(player_count):
                 for _ in range(count):
                     hands[seat].append(self._take_front())
@@ -134,9 +134,9 @@ class Wall:
         if self.live_draws_remaining < 1:
             raise WallError("no undrawn live tile remains for a replacement draw")
         self._replacements += 1
-        if self._replacements <= _DEAD_WALL_REPLACEMENTS:
+        if self._replacements <= DEAD_WALL_REPLACEMENTS:
             return self._sequence[self._replacements - 1]
-        return self._sequence[len(self._sequence) - self._replacements + _DEAD_WALL_REPLACEMENTS]
+        return self._sequence[len(self._sequence) - self._replacements + DEAD_WALL_REPLACEMENTS]
 
     def reveal_indicator(self) -> Tile:
         """Turn up the next dora indicator and return it.
@@ -150,7 +150,7 @@ class Wall:
         if self._revealed >= _MAX_INDICATORS:
             raise WallError("all five dora indicators are already revealed")
         self._revealed += 1
-        return self._sequence[_DORA_SLOTS[self._revealed - 1]]
+        return self._sequence[DORA_SLOTS[self._revealed - 1]]
 
     def _take_front(self) -> Tile:
         """Consume one tile from the live wall's front."""

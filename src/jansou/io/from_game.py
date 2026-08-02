@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from jansou.core.hand import CallSource, Meld, MeldType
+from jansou.core.hand import SOURCE_OF_RELATIVE, CallSource, Meld, MeldType
 from jansou.core.rules import RIICHI_DEPOSIT, preset_name_of
 from jansou.game.events import (
     Call as GameCall,
@@ -65,8 +65,6 @@ if TYPE_CHECKING:
     from jansou.core.rules import Rules
     from jansou.core.tiles import Tile
     from jansou.game.environment import Environment
-
-_SOURCE_OF_RELATIVE = {1: CallSource.KAMICHA, 2: CallSource.TOIMEN, 3: CallSource.SHIMOCHA}
 
 
 def paifu_from_game(environment: Environment) -> Paifu:
@@ -157,7 +155,7 @@ def _meld_of(call: GameCall, last_discard: Tile | None, player_count: int) -> Me
         # The engine appends the promoting tile last; its original source does not score.
         added = tiles[-1]
         return Meld(MeldType.SHOUMINKAN, tiles, called=added, source=CallSource.KAMICHA, added=added)
-    source = _SOURCE_OF_RELATIVE[(call.caller - call.source) % player_count]
+    source = SOURCE_OF_RELATIVE[(call.caller - call.source) % player_count]
     return Meld(call.meld_type, tiles, called=last_discard, source=source)
 
 

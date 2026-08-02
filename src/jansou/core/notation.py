@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from jansou.core.tiles import FIVE_KINDS, Suit, Tile, TileKind
+from jansou.core.tiles import FIVE_KINDS, TILES_PER_KIND, Suit, Tile, TileKind
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -28,9 +28,8 @@ _MJAI_HONOR_OF_LETTER = {
 _MJAI_LETTER_OF_HONOR = {kind: letter for letter, kind in _MJAI_HONOR_OF_LETTER.items()}
 
 #: The three reserved red-five indices of the 136-tile layout.
-_RED_INDICES = frozenset({16, 52, 88})
+RED_136 = frozenset({16, 52, 88})
 _INDEX_COUNT = 136
-_SLOTS_PER_KIND = 4
 
 
 class NotationError(ValueError):
@@ -196,7 +195,7 @@ def parse_136(indices: Iterable[int]) -> list[Tile]:
         if value in seen:
             raise NotationError(f"duplicate 136-tile index {value} at position {position}")
         seen.add(value)
-        tiles.append(Tile(TileKind(value // _SLOTS_PER_KIND), red=value in _RED_INDICES))
+        tiles.append(Tile(TileKind(value // TILES_PER_KIND), red=value in RED_136))
     return tiles
 
 
@@ -221,13 +220,13 @@ def dump_136(tiles: Iterable[Tile]) -> list[int]:
     used: Counter[tuple[TileKind, bool]] = Counter()
     indices: list[int] = []
     for tile in tiles:
-        base = tile.kind * _SLOTS_PER_KIND
+        base = tile.kind * TILES_PER_KIND
         if tile.red:
             first, capacity = base, 1
         elif tile.kind in FIVE_KINDS:
-            first, capacity = base + 1, _SLOTS_PER_KIND - 1
+            first, capacity = base + 1, TILES_PER_KIND - 1
         else:
-            first, capacity = base, _SLOTS_PER_KIND
+            first, capacity = base, TILES_PER_KIND
         slot = used[tile.kind, tile.red]
         if slot >= capacity:
             raise NotationError(f"no 136-tile slot left for {dump_mpsz([tile])!r} (already used {capacity})")

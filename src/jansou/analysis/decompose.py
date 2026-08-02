@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum, auto, unique
 from typing import TYPE_CHECKING
 
-from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS, MeldType
+from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS, PAIR_SIZE, SET_SIZE, MeldType
 from jansou.core.tiles import NUM_KINDS, YAOCHUU_KINDS, Tile, TileKind, counts_by_kind
 
 if TYPE_CHECKING:
@@ -21,8 +21,6 @@ if TYPE_CHECKING:
 
     from jansou.core.hand import Meld
 
-_PAIR_SIZE = 2
-_SET_SIZE = 3
 _COMPLETE_SIZE = FULL_HAND_SIZE + 1  # tiles in a complete concealed hand with no melds
 _CHIITOI_PAIRS = 7
 _SUITED_KINDS = 27
@@ -144,19 +142,19 @@ def _consume(counts: list[int], sets_left: int, *, pair_used: bool) -> bool:
     i = next((k for k in range(NUM_KINDS) if counts[k] > 0), None)
     if i is None:
         return sets_left == 0 and pair_used
-    if not pair_used and counts[i] >= _PAIR_SIZE:
-        counts[i] -= _PAIR_SIZE
+    if not pair_used and counts[i] >= PAIR_SIZE:
+        counts[i] -= PAIR_SIZE
         if _consume(counts, sets_left, pair_used=True):
-            counts[i] += _PAIR_SIZE
+            counts[i] += PAIR_SIZE
             return True
-        counts[i] += _PAIR_SIZE
+        counts[i] += PAIR_SIZE
     if sets_left > 0:
-        if counts[i] >= _SET_SIZE:
-            counts[i] -= _SET_SIZE
+        if counts[i] >= SET_SIZE:
+            counts[i] -= SET_SIZE
             if _consume(counts, sets_left - 1, pair_used=pair_used):
-                counts[i] += _SET_SIZE
+                counts[i] += SET_SIZE
                 return True
-            counts[i] += _SET_SIZE
+            counts[i] += SET_SIZE
         if _can_run(counts, i):
             _take_run(counts, i, -1)
             if _consume(counts, sets_left - 1, pair_used=pair_used):
@@ -180,7 +178,7 @@ def _take_run(counts: list[int], i: int, sign: int) -> None:
 
 def _chiitoi_complete(counts: list[int]) -> bool:
     """Whether the counts are seven distinct pairs."""
-    return sum(1 for c in counts if c == _PAIR_SIZE) == _CHIITOI_PAIRS and all(c in (0, _PAIR_SIZE) for c in counts)
+    return sum(1 for c in counts if c == PAIR_SIZE) == _CHIITOI_PAIRS and all(c in (0, PAIR_SIZE) for c in counts)
 
 
 def _kokushi_complete(counts: list[int]) -> bool:
@@ -210,7 +208,7 @@ def is_complete(counts: list[int], num_melds: int, *, allow_special: bool | None
     """
     total = sum(counts)
     special = (num_melds == 0) if allow_special is None else allow_special
-    if total == (MAX_MELDS - num_melds) * _SET_SIZE + _PAIR_SIZE and _standard_complete(counts, MAX_MELDS - num_melds):
+    if total == (MAX_MELDS - num_melds) * SET_SIZE + PAIR_SIZE and _standard_complete(counts, MAX_MELDS - num_melds):
         return True
     return bool(special and total == _COMPLETE_SIZE and (_chiitoi_complete(counts) or _kokushi_complete(counts)))
 
@@ -229,10 +227,10 @@ def _all_set_partitions(counts: list[int], need_sets: int) -> list[tuple[tuple[s
     if need_sets == 0:
         return []
     out: list[tuple[tuple[str, int], ...]] = []
-    if counts[i] >= _SET_SIZE:
-        counts[i] -= _SET_SIZE
+    if counts[i] >= SET_SIZE:
+        counts[i] -= SET_SIZE
         out.extend((("trip", i), *rest) for rest in _all_set_partitions(counts, need_sets - 1))
-        counts[i] += _SET_SIZE
+        counts[i] += SET_SIZE
     if _can_run(counts, i):
         _take_run(counts, i, -1)
         out.extend((("run", i), *rest) for rest in _all_set_partitions(counts, need_sets - 1))
@@ -254,7 +252,7 @@ def _run_wait(run_kinds: tuple[TileKind, ...], won: TileKind) -> WaitShape:
 def _standard_decompositions(counts: list[int], melds: tuple[Meld, ...], winning: Tile) -> list[Decomposition]:
     """Every standard-shape reading of the concealed counts around the melds."""
     need_sets = MAX_MELDS - len(melds)
-    if sum(counts) != need_sets * _SET_SIZE + _PAIR_SIZE:
+    if sum(counts) != need_sets * SET_SIZE + PAIR_SIZE:
         return []
     meld_groups = tuple(_meld_group(meld) for meld in melds)
     seen: set[tuple[object, ...]] = set()
@@ -274,13 +272,13 @@ def _standard_decompositions(counts: list[int], melds: tuple[Meld, ...], winning
             out.append(Decomposition(Shape.STANDARD, groups, pair, wait, winning, block))
 
     for pair_kind in range(NUM_KINDS):
-        if counts[pair_kind] < _PAIR_SIZE:
+        if counts[pair_kind] < PAIR_SIZE:
             continue
-        counts[pair_kind] -= _PAIR_SIZE
+        counts[pair_kind] -= PAIR_SIZE
         pair = Group(GroupType.PAIR, (TileKind(pair_kind), TileKind(pair_kind)), concealed=True)
         for partition in _all_set_partitions(counts, need_sets):
             emit(tuple(_partition_group(entry) for entry in partition), pair)
-        counts[pair_kind] += _PAIR_SIZE
+        counts[pair_kind] += PAIR_SIZE
     return out
 
 
@@ -317,7 +315,7 @@ def _special_decompositions(counts: list[int], winning: Tile) -> list[Decomposit
         won_pair = next(group for group in pairs if group.kind == winning.kind)
         out.append(Decomposition(Shape.CHIITOI, pairs, None, WaitShape.CHIITOI, winning, won_pair))
     if _kokushi_complete(counts):
-        thirteen = counts[winning.kind] == _PAIR_SIZE
+        thirteen = counts[winning.kind] == PAIR_SIZE
         wait = WaitShape.KOKUSHI_THIRTEEN if thirteen else WaitShape.KOKUSHI
         out.append(Decomposition(Shape.KOKUSHI, (), None, wait, winning, None))
     return out

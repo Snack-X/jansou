@@ -17,11 +17,12 @@ import json
 from dataclasses import asdict, fields
 from pathlib import Path
 
-from jansou.core.hand import FULL_HAND_SIZE, CallSource, Meld, MeldType
+from jansou.core.hand import FULL_HAND_SIZE, SOURCE_OF_RELATIVE, CallSource, Meld, MeldType
 from jansou.core.notation import dump_mjai as _dump_tiles
 from jansou.core.notation import parse_mjai as _parse_tiles
 from jansou.core.rules import Rules, preset, preset_name_of
 from jansou.core.tiles import Tile, TileKind, Wind, full_tile_set
+from jansou.game.actions import KAN_CAP
 from jansou.game.wall import DEAD_WALL_SIZE
 from jansou.io.paifu import (
     Agari,
@@ -41,12 +42,9 @@ from jansou.io.paifu import (
 
 _WIND_OF_NAME = {"E": Wind.EAST, "S": Wind.SOUTH, "W": Wind.WEST, "N": Wind.NORTH}
 _NAME_OF_WIND = {wind: name for name, wind in _WIND_OF_NAME.items()}
-_SOURCE_OF_RELATIVE = {1: CallSource.KAMICHA, 2: CallSource.TOIMEN, 3: CallSource.SHIMOCHA}
 #: Seats to step forward from the caller to reach each source. In sanma the three
 #: directions collapse onto two opponents, but every step still lands on one of them.
 _STEPS_OF_SOURCE = {CallSource.KAMICHA: -1, CallSource.TOIMEN: 2, CallSource.SHIMOCHA: 1}
-#: Kans that, spread across seats, abort the round.
-_KAN_CAP = 4
 
 
 class MjaiError(ValueError):
@@ -230,7 +228,7 @@ def _meld(event: dict, kind: str, player_count: int) -> Meld:
     if kind == "kakan":
         # A promotion's source does not bear on scoring; kamicha is a valid stand-in.
         return Meld(MeldType.SHOUMINKAN, (*consumed, called), called=called, source=CallSource.KAMICHA, added=called)
-    source = _SOURCE_OF_RELATIVE[(event["actor"] - event["target"]) % player_count]
+    source = SOURCE_OF_RELATIVE[(event["actor"] - event["target"]) % player_count]
     meld_type = {"chi": MeldType.CHII, "pon": MeldType.PON, "daiminkan": MeldType.DAIMINKAN}[kind]
     return Meld(meld_type, (*consumed, called), called=called, source=source)
 
@@ -313,7 +311,7 @@ def _abort_kind(events: list[Event], player_count: int) -> str:
     Returns:
         The Tenhou name of the abort.
     """
-    if sum(1 for event in events if isinstance(event, Call) and event.meld.is_kan) >= _KAN_CAP:
+    if sum(1 for event in events if isinstance(event, Call) and event.meld.is_kan) >= KAN_CAP:
         return "kan4"
     if len({event.seat for event in events if isinstance(event, Discard) and event.riichi}) >= player_count:
         return "reach4"
