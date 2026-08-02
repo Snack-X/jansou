@@ -10,7 +10,7 @@ Semantics cannot drift: the same `_distance_vector` that answers a lazy fill
 also fills this file, so regenerating is only ever needed if that search itself
 changes. Takes a couple of minutes single-core.
 
-    uv run python examples/generate_shanten_tables.py
+    uv run python tools/generate_shanten_tables.py
 """
 
 from __future__ import annotations

@@ -327,7 +327,7 @@ def _probed_shantens(counts: list[int], num_melds: int, kinds: tuple[TileKind, .
 # The tables below replace per-probe tuple building and dictionary hashing with
 # radix arithmetic: a block's counts read as a base-five number index straight
 # into a table of vector classes, so probing a kind is an index offset. The
-# tables ship precomputed (see examples/generate_shanten_tables.py) and fall
+# tables ship precomputed (see tools/generate_shanten_tables.py) and fall
 # back to lazy filling through _distance_vector when the file is absent, so the
 # semantics cannot differ between the two paths.
 _RADIX = TILES_PER_KIND + 1

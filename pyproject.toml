@@ -67,7 +67,7 @@ exclude = [
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["benchmarks", "examples"]
+extend-exclude = ["benchmarks", "examples", "tools"]
 
 [tool.ruff.lint]
 select = ["ALL"]
