@@ -8,8 +8,8 @@
 | src/jansou/analysis/\_\_init\_\_.py   |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/analysis/decompose.py      |      119 |        0 |       30 |        0 |     100% |           |
 | src/jansou/analysis/efficiency.py     |       68 |        0 |       16 |        0 |     100% |           |
-| src/jansou/analysis/ev.py             |      119 |        0 |       50 |        0 |     100% |           |
-| src/jansou/analysis/shanten.py        |       82 |        0 |       26 |        0 |     100% |           |
+| src/jansou/analysis/ev.py             |      141 |        0 |       54 |        0 |     100% |           |
+| src/jansou/analysis/shanten.py        |      267 |        0 |       92 |        0 |     100% |           |
 | src/jansou/analysis/waits.py          |       11 |        0 |        0 |        0 |     100% |           |
 | src/jansou/core/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/core/hand.py               |      103 |        0 |       38 |        0 |     100% |           |
@@ -41,7 +41,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **4028** |    **0** | **1208** |    **0** | **100%** |           |
+| **TOTAL**                             | **4235** |    **0** | **1278** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
