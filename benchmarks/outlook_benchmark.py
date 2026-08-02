@@ -15,7 +15,7 @@ Two things this benchmark is careful about, both learned the hard way:
   measured as the difference between two **warm** passes, then added to a
   **cold** pass, which is what a conversion actually pays.
 
-    uv run python examples/outlook_benchmark.py
+    uv run python benchmarks/outlook_benchmark.py
 """
 
 from __future__ import annotations
