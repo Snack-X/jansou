@@ -6,10 +6,11 @@
 |-------------------------------------- | -------: | -------: | -------: | -------: | -------: | --------: |
 | src/jansou/\_\_init\_\_.py            |        2 |        0 |        0 |        0 |     100% |           |
 | src/jansou/analysis/\_\_init\_\_.py   |        0 |        0 |        0 |        0 |     100% |           |
+| src/jansou/analysis/\_native.py       |       17 |        0 |        2 |        0 |     100% |           |
 | src/jansou/analysis/decompose.py      |      117 |        0 |       30 |        0 |     100% |           |
 | src/jansou/analysis/efficiency.py     |       68 |        0 |       16 |        0 |     100% |           |
-| src/jansou/analysis/ev.py             |      141 |        0 |       54 |        0 |     100% |           |
-| src/jansou/analysis/shanten.py        |      265 |        0 |       92 |        0 |     100% |           |
+| src/jansou/analysis/ev.py             |      155 |        0 |       58 |        0 |     100% |           |
+| src/jansou/analysis/shanten.py        |      273 |        0 |       98 |        0 |     100% |           |
 | src/jansou/analysis/waits.py          |       10 |        0 |        0 |        0 |     100% |           |
 | src/jansou/core/\_\_init\_\_.py       |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/core/hand.py               |      105 |        0 |       38 |        0 |     100% |           |
@@ -41,7 +42,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **4220** |    **0** | **1278** |    **0** | **100%** |           |
+| **TOTAL**                             | **4259** |    **0** | **1290** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
