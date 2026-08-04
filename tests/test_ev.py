@@ -6,6 +6,7 @@ from itertools import pairwise
 
 import pytest
 
+from jansou.analysis import _native
 from jansou.analysis.ev import Outlook, Valuation, _build, _GraphCache, discard_outlooks, hand_outlook, outlook
 from jansou.analysis.shanten import discard_shantens, shanten_counts
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
@@ -16,6 +17,12 @@ from jansou.scoring.context import WinContext
 from jansou.scoring.score import ScoringError, score
 
 TOLERANCE = 1e-12
+
+
+@pytest.fixture(autouse=True)
+def _pure_solver(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests pin the pure reference; the native paths are covered elsewhere.
+    monkeypatch.setattr(_native, "SOLVER", None)
 
 
 def counts(mpsz: str) -> list[int]:

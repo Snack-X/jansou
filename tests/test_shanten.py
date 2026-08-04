@@ -7,6 +7,7 @@ import zlib
 
 import pytest
 
+from jansou.analysis import _native
 from jansou.analysis import shanten as shanten_module
 from jansou.analysis.decompose import is_complete
 from jansou.analysis.shanten import (
@@ -23,6 +24,14 @@ from jansou.core.notation import parse_mpsz
 from jansou.core.tiles import NUM_KINDS, TILES_PER_KIND, YAOCHUU_KINDS, counts_by_kind
 
 _INF = 99
+
+
+@pytest.fixture(autouse=True)
+def _pure_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests pin the pure reference; the native paths are covered elsewhere.
+    monkeypatch.setattr(_native, "KERNEL", None)
+    shanten_module._PROBE_MEMO.clear()
+    shanten_module._COUNT_MEMO.clear()
 
 
 def counts(mpsz: str) -> list[int]:

@@ -24,7 +24,7 @@ from __future__ import annotations
 import time
 from math import inf
 
-from jansou.analysis import ev, shanten
+from jansou.analysis import _native, ev, shanten
 from jansou.analysis.ev import discard_outlooks
 from jansou.analysis.shanten import probe_shantens, shanten_counts
 from jansou.core.rules import Rules
@@ -78,6 +78,8 @@ def clear_solver_caches() -> None:
     ev._BREADTHS.clear()  # noqa: SLF001
     ev._VALUES.clear()  # noqa: SLF001
     ev._CACHE = ev._GraphCache(ev._GRAPH_CACHE_STATES)  # noqa: SLF001
+    # The native solver keeps its own graph and expansion caches; start fresh.
+    _native.SOLVER = _native.build()[1]
 
 
 def kernel_report(resting: list[Position], post_draw: list[Position]) -> None:

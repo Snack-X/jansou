@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from jansou.analysis import _native
 from jansou.analysis.shanten import _trim, discard_shantens, probe_shantens, shanten_counts
 from jansou.core.hand import Hand
 from jansou.core.tiles import FIVE_KINDS, NUM_KINDS, TILES_PER_KIND, Tile, TileKind, Wind, counts_by_kind, kinds_in_play
@@ -524,6 +525,41 @@ def _check_valuation(concealed: list[int], num_melds: int, valuation: Valuation)
             raise ValueError(f"{reds} red {TileKind(kind)} marked, but the hand holds {concealed[kind]}")
 
 
+def _in_native_domain(visible: Sequence[int] | None) -> bool:
+    """Whether the visible counts sit in the native solver's domain.
+
+    Counts outside zero to four describe no real table; they fall to the pure
+    path, which prices or rejects them exactly as it always has.
+    """
+    return visible is None or all(0 <= copies <= TILES_PER_KIND for copies in visible)
+
+
+def _native_outlook(
+    solver: _native.OutlookSolver,
+    concealed: list[int],
+    num_melds: int,
+    max_draws: int,
+    visible: Sequence[int] | None,
+    player_count: int,
+    beam: int | None,
+    valuation: Valuation | None,
+) -> Outlook:
+    """The outlook solved natively, priced through the same pure valuation.
+
+    The native solver mirrors the pure sweeps' operation order, so the curves
+    match the pure path. Winning completions are still priced by ``_value``:
+    the solver lists them in a stable order and takes the worths back.
+    """
+    seen = list(visible) if visible is not None else [0] * NUM_KINDS
+    ready, win = solver.solve(concealed, num_melds, max_draws, seen, player_count, beam)
+    points: tuple[float, ...] = ()
+    if valuation is not None:
+        entries = solver.pricing_entries(concealed, num_melds, max_draws, player_count, beam)
+        worths = [_value(tuple(state), int(kind), valuation) for state, kind in entries]
+        points = tuple(solver.points_curve(concealed, num_melds, max_draws, seen, worths, player_count, beam))
+    return Outlook(ready=tuple(ready), win=tuple(win), points=points)
+
+
 def _outlook(
     concealed: list[int],
     num_melds: int,
@@ -555,6 +591,9 @@ def _outlook(
     if max_distance is not None and distance > max_distance:
         blank = (0.0,) * (max_draws + 1)
         return Outlook(ready=blank, win=blank, points=blank if valuation else ())
+    solver = _native.SOLVER
+    if solver is not None and max(concealed) <= TILES_PER_KIND and _in_native_domain(visible):
+        return _native_outlook(solver, concealed, num_melds, max_draws, visible, player_count, beam, valuation)
     graph = _graph(tuple(concealed), num_melds, player_count, max_draws, beam)
     pools, total = _unseen(graph, visible or [0] * len(concealed), kinds)
     if total < max_draws:

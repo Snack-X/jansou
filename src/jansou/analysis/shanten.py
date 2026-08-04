@@ -27,6 +27,7 @@ from importlib import resources
 from itertools import islice
 from typing import TYPE_CHECKING
 
+from jansou.analysis import _native
 from jansou.core.hand import FULL_HAND_SIZE, MAX_MELDS, PAIR_SIZE, SET_SIZE
 from jansou.core.tiles import TILES_PER_KIND, YAOCHUU_KINDS, counts_by_kind
 
@@ -48,7 +49,13 @@ _BLOCKS = ((0, 9), (9, 18), (18, 27), (27, 34))
 
 
 def _legal_sizes(num_melds: int) -> tuple[int, int]:
-    """The resting and holding concealed-tile counts for a hand with this many melds."""
+    """The resting and holding concealed-tile counts for a hand with this many melds.
+
+    Raises:
+        ValueError: If the meld count is outside zero to four.
+    """
+    if not 0 <= num_melds <= MAX_MELDS:
+        raise ValueError(f"melds must be zero to four, got {num_melds}")
     rest = FULL_HAND_SIZE - SET_SIZE * num_melds
     return rest, rest + 1
 
@@ -576,11 +583,15 @@ def probe_shantens(counts: list[int], num_melds: int, delta: int) -> list[int | 
         raise ValueError(f"a hand with {num_melds} melds cannot have {total + delta} concealed tiles")
     if max(counts) > TILES_PER_KIND:
         raise ValueError("probe counts must not exceed four copies of a kind")
-    if not _TABLES_READY:
-        _load_tables()
-    result = _standard_probes(counts, num_melds, delta)
-    if num_melds == 0 and total + delta in _FULL_CONCEALED:
-        _closed_probes(counts, delta, result)
+    kernel = _native.KERNEL
+    if kernel is not None:
+        result = kernel.probe_shantens(counts, num_melds, delta)
+    else:
+        if not _TABLES_READY:
+            _load_tables()
+        result = _standard_probes(counts, num_melds, delta)
+        if num_melds == 0 and total + delta in _FULL_CONCEALED:
+            _closed_probes(counts, delta, result)
     _PROBE_MEMO[key] = result
     if len(_PROBE_MEMO) > _PROBE_MEMO_SIZE:
         _trim(_PROBE_MEMO, _PROBE_MEMO_SIZE)
@@ -613,6 +624,9 @@ def shanten_counts(counts: list[int], num_melds: int) -> int:
     if max(counts) > TILES_PER_KIND:
         # Beyond the tables' radix; the recursive path prices any counts.
         best = _standard(counts, num_melds)
+    elif (kernel := _native.KERNEL) is not None:
+        # The kernel folds the closed shapes in; the shared minimum below is a no-op.
+        best = kernel.shanten_counts(counts, num_melds)
     else:
         if not _TABLES_READY:
             _load_tables()
