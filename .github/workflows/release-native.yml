@@ -13,6 +13,20 @@ permissions:
   contents: read
 
 jobs:
+  check:
+    name: check the tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Check that the tag matches the crate version
+        run: |
+          pyproject="$(sed -n 's/^version = "\(.*\)"$/\1/p' native/pyproject.toml | head -1)"
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' native/Cargo.toml | head -1)"
+          test "$cargo" = "$pyproject"
+          test "native-v$pyproject" = "$GITHUB_REF_NAME"
+
   wheels:
     name: wheel (${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
@@ -75,7 +89,7 @@ jobs:
   publish:
     name: publish to PyPI
     if: github.event_name == 'push'
-    needs: [wheels, sdist]
+    needs: [check, wheels, sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
