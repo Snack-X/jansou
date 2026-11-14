@@ -146,10 +146,8 @@ impl Kernel {
         if payload.len() != suit_start + SUIT_SLOTS + HONOR_SLOTS {
             return Err("shanten table file has the wrong length".into());
         }
-        let vectors: Vec<[u8; VECTOR_WIDTH]> = payload[vectors_start..suit_start]
-            .chunks_exact(VECTOR_WIDTH)
-            .map(|chunk| chunk.try_into().expect("chunks are vector-width"))
-            .collect();
+        let vectors: Vec<[u8; VECTOR_WIDTH]> =
+            payload[vectors_start..suit_start].as_chunks().0.to_vec();
         let suit = payload[suit_start..suit_start + SUIT_SLOTS].to_vec();
         let honor = payload[suit_start + SUIT_SLOTS..].to_vec();
         if suit
