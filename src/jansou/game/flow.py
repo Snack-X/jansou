@@ -467,11 +467,10 @@ def _reaction_window(
     choices: dict[int, Action] = {}
     for seat in _opponents(state, discarder):
         actions = discard_reactions(state, seat, final=final)
-        if not actions:
-            continue
-        choice = yield DecisionPoint(seat, DecisionKind.DISCARD_REACTION, tuple(actions))
-        choices[seat] = choice
-        if any(isinstance(action, Ron) for action in actions) and not isinstance(choice, Ron):
+        if actions:
+            choices[seat] = yield DecisionPoint(seat, DecisionKind.DISCARD_REACTION, tuple(actions))
+        # A wait that goes by binds even when no yaku allowed a ron on it.
+        if not isinstance(choices.get(seat), Ron) and tile.kind in current_waits(state, seat):
             _mark_passed_ron(state, seat)
     return _resolve_reactions(state, discarder, tile, choices, emit)
 
@@ -914,7 +913,7 @@ def _break_ippatsu(state: GameState) -> None:
 
 
 def _mark_passed_ron(state: GameState, seat: int) -> None:
-    """Apply furiten to a player who passed a tile they could have ronned."""
+    """Apply furiten to a player who let a winning tile go, offered a ron or not."""
     player = state.players[seat]
     player.temporary_furiten = True
     if player.is_riichi:

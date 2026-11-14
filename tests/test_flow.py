@@ -629,6 +629,52 @@ class TestMultipleRon:
         assert outcome.winners == (1,)  # nearest to the discarder in turn order
 
 
+class TestTemporaryFuriten:
+    def _play(self, state: GameState, waiter: int, plans: dict[int, list[Tile]]) -> tuple[list[bool], Recorder]:
+        """Play the planned discards; report whether each of the waiter's reaction menus held a ron."""
+        ron_offers: list[bool] = []
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == waiter and kind is DecisionKind.DISCARD_REACTION:
+                ron_offers.append(Ron() in actions)
+                return Ron() if Ron() in actions else Pass()
+            if seat == waiter and kind is DecisionKind.SELF:
+                return next(action for action in actions if isinstance(action, Discard) and action.tsumogiri)
+            if kind is DecisionKind.SELF and plans.get(seat):
+                return discard_of(actions, plans[seat].pop(0))
+            return just_discard(seat, kind, actions)
+
+        rec = Recorder()
+        play_deal(state, decide, rec)
+        return ron_offers, rec
+
+    def test_yakuless_wait_passing_by_blocks_ron_until_own_discard(self) -> None:
+        # Seat 3 waits on 9m (no yaku) and haku (yakuhai), so the 9m offers a pon but no ron.
+        chii = Meld(MeldType.CHII, tuple(parse_mpsz("123m")), called=Tile(TileKind.M1), source=CallSource.KAMICHA)
+        haku_holder = "159m159p159s1235z"
+        state = flow_state([haku_holder, haku_holder, _JUNK, "99m456p789s55z"])
+        state.players[3].melds = [chii]
+        plans = {0: [Tile(TileKind.M9), Tile(TileKind.HAKU)], 1: [Tile(TileKind.HAKU)]}
+
+        ron_offers, rec = self._play(state, 3, plans)
+
+        # The 9m, the haku in the same go-around, then the haku after seat 3's own discard.
+        assert ron_offers == [False, False, True]
+        assert rec.of(Win)[0].seat == 3
+
+    def test_yakuless_wait_with_no_reaction_offered_blocks_ron(self) -> None:
+        # Seat 2 waits on 3s and 6s (tanyao) and 9s (no yaku); the 9s offers it nothing at all.
+        six_holder = "159m159p156s1234z"
+        state = flow_state([_JUNK, six_holder, "222m456p3456678s", six_holder])
+        plans = {0: [Tile(TileKind.S9)], 1: [Tile(TileKind.S6)], 3: [Tile(TileKind.S6)]}
+
+        ron_offers, rec = self._play(state, 2, plans)
+
+        # Seat 1's 6s in the same go-around, then seat 3's 6s after seat 2's own discard.
+        assert ron_offers == [False, True]
+        assert rec.of(Win)[0].seat == 2
+
+
 class TestExhaustiveVariants:
     def test_formal_tenpai_counts_yakuless_shapes(self) -> None:
         # A concealed yakuless tenpai counts as ready only under the formal-tenpai flag.
