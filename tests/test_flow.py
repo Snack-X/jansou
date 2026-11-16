@@ -362,19 +362,103 @@ class TestKans:
         state = flow_state(["5s123m456m789m", "234m345m678p234s5s", _JUNK, _JUNK], sequence=seq)
         state.players[0].melds = [pon]
         state.players[1].riichi = True
+        rec = Recorder()
 
         def decide(seat: int, kind: DecisionKind, actions: list) -> object:
             if seat == 0 and kind is DecisionKind.SELF and any(isinstance(a, AddedKan) for a in actions):
                 return next(a for a in actions if isinstance(a, AddedKan))
             if seat == 1 and kind is DecisionKind.ROBBED_KAN:
+                # The robbing seat decides with the kan already shown.
+                assert state.players[0].melds[0].type is MeldType.SHOUMINKAN
+                assert [call.meld_type for call in rec.of(Call)] == [MeldType.SHOUMINKAN]
                 return Ron()
             return just_discard(seat, kind, actions)
 
-        rec = Recorder()
         outcome = play_deal(state, decide, rec)
         assert outcome.winners == (1,)
         assert Yaku.CHANKAN in {value.yaku for value in rec.of(Win)[0].result.yaku}
         assert state.kans == 0  # a robbed kan never completes
+        assert not rec.of(IndicatorReveal)
+        assert not any(draw.replacement for draw in rec.of(Draw))
+
+    def test_declined_rob_completes_the_kan_after_its_call(self) -> None:
+        pon = Meld(MeldType.PON, tuple(parse_mpsz("555s")), called=Tile(TileKind.S5), source=CallSource.TOIMEN)
+        seq = sequence_with(i14=Tile(TileKind.EAST))
+        state = flow_state(["5s123m456m789m", "234m345m678p234s5s", _JUNK, _JUNK], sequence=seq)
+        state.players[0].melds = [pon]
+        state.players[1].riichi = True
+        rec = Recorder()
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF and any(isinstance(a, AddedKan) for a in actions):
+                return next(a for a in actions if isinstance(a, AddedKan))
+            if seat == 1 and kind is DecisionKind.ROBBED_KAN:
+                assert len(rec.of(Call)) == 1
+                assert state.kans == 0
+                assert not rec.of(IndicatorReveal)
+            return just_discard(seat, kind, actions)
+
+        play_deal(state, decide, rec)
+        kinds = [type(event) for event in rec.events if isinstance(event, (Call, IndicatorReveal, Draw))]
+        # The draw before the kan, the call, then the reveal and the replacement draw.
+        assert kinds[:4] == [Draw, Call, IndicatorReveal, Draw]
+        assert len(rec.of(Call)) == 1
+        assert state.kans == 1
+
+    def _kans_after_a_deferred_reveal(self, concealed: str) -> list[type]:
+        """Play seat 0's kans, added ones first, and list its calls and reveals in order."""
+        pon = Meld(MeldType.PON, tuple(parse_mpsz("888s")), called=Tile(TileKind.S8), source=CallSource.TOIMEN)
+        second = Meld(MeldType.PON, tuple(parse_mpsz("777p")), called=Tile(TileKind.P7), source=CallSource.TOIMEN)
+        rules = Rules(open_kan_indicator_immediate=False)
+        state = flow_state(
+            [concealed, _JUNK, _JUNK, _JUNK], sequence=sequence_with(i14=Tile(TileKind.EAST)), rules=rules
+        )
+        state.players[0].melds = [pon, second]
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF:
+                kans = [a for a in actions if isinstance(a, AddedKan)] or [
+                    a for a in actions if isinstance(a, ClosedKan)
+                ]
+                if kans:
+                    return kans[0]
+            return just_discard(seat, kind, actions)
+
+        rec = Recorder()
+        play_deal(state, decide, rec)
+        return [type(event) for event in rec.events if isinstance(event, (Call, IndicatorReveal))]
+
+    def test_deferred_indicator_turns_after_a_further_added_kan_shows(self) -> None:
+        # The second added kan is robbable, so the first kan's indicator waits for its call.
+        order = self._kans_after_a_deferred_reveal("8s7p23467m")
+        assert order[:3] == [Call, Call, IndicatorReveal]
+
+    def test_deferred_indicator_turns_before_a_closed_kan_shows(self) -> None:
+        order = self._kans_after_a_deferred_reveal("8s2222m34p")
+        assert order[:4] == [Call, IndicatorReveal, Call, IndicatorReveal]
+
+    def test_kokushi_robs_a_closed_kan(self) -> None:
+        seq = sequence_with(i14=Tile(TileKind.M1))
+        rules = Rules(kokushi_ankan_chankan=True)
+        state = flow_state(["111m234p567p789p9s", "9m19p19s12345677z", _JUNK, _JUNK], sequence=seq, rules=rules)
+        rec = Recorder()
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            if seat == 0 and kind is DecisionKind.SELF and any(isinstance(a, ClosedKan) for a in actions):
+                return next(a for a in actions if isinstance(a, ClosedKan))
+            if seat == 1 and kind is DecisionKind.ROBBED_KAN:
+                # The robbing seat decides with the kan already shown.
+                assert state.players[0].melds[0].type is MeldType.ANKAN
+                assert [call.meld_type for call in rec.of(Call)] == [MeldType.ANKAN]
+                return Ron()
+            return just_discard(seat, kind, actions)
+
+        outcome = play_deal(state, decide, rec)
+        assert outcome.winners == (1,)
+        assert Yaku.KOKUSHI in {value.yaku for value in rec.of(Win)[0].result.yaku}
+        assert state.kans == 0  # a robbed kan never completes
+        assert not rec.of(IndicatorReveal)
+        assert not any(draw.replacement for draw in rec.of(Draw))
 
     def test_added_kan_keeps_the_prior_draw(self) -> None:
         pon = Meld(MeldType.PON, tuple(parse_mpsz("555s")), called=Tile(TileKind.S5), source=CallSource.TOIMEN)
@@ -471,17 +555,21 @@ class TestSanma:
             rules=Rules(player_count=3),
         )
         state.players[1].riichi = True
+        rec = Recorder()
 
         def decide(seat: int, kind: DecisionKind, actions: list) -> object:
             if seat == 0 and kind is DecisionKind.SELF and any(isinstance(a, Nuki) for a in actions):
                 return Nuki()
             if seat == 1 and kind is DecisionKind.NORTH_REACTION:
+                # The robbing seat decides with the North already set aside.
+                assert state.players[0].nuki_count == 1
+                assert len(rec.of(NorthExtraction)) == 1
                 return Ron()
             return just_discard(seat, kind, actions)
 
-        rec = Recorder()
         outcome = play_deal(state, decide, rec)
         assert outcome.winners == (1,)
+        assert not any(draw.replacement for draw in rec.of(Draw))
 
     def test_honba_ron_moves_two_shares_per_counter(self) -> None:
         def ron_deltas(honba: int) -> tuple[int, int]:

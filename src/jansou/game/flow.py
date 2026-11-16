@@ -310,8 +310,9 @@ def _act(state: GameState, emit: Emit, *, rinshan: bool) -> Generator[DecisionPo
 def _self_kan_or_nuki(
     state: GameState, seat: int, choice: Action, emit: Emit
 ) -> Generator[DecisionPoint, Action, _Terminal | None]:
-    """Apply a closed kan, added kan, or North, after its robbing window."""
+    """Show a closed kan, added kan, or North, then complete it when nobody robs it."""
     tile, mode = _rob_target(choice)
+    _show_kan_or_nuki(state, seat, choice, emit)
     terminal = yield from _robbing_window(state, seat, tile, mode, emit)
     if terminal is not None:
         return terminal
@@ -333,20 +334,31 @@ def _rob_target(choice: Action) -> tuple[Tile, _RobMode]:
     return Tile(TileKind.NORTH), _RobMode.NORTH
 
 
-def _complete_kan(state: GameState, seat: int, choice: Action, emit: Emit) -> None:
-    """Complete a closed or added kan: meld, reveal, and replacement draw."""
-    _flush_deferred_reveals(state, emit)  # a further kan settles any indicator still deferred
+def _show_kan_or_nuki(state: GameState, seat: int, choice: Action, emit: Emit) -> None:
+    """Move the tiles of a closed kan, added kan, or North and announce it, ahead of its robbing window."""
     player = state.players[seat]
     if isinstance(choice, AddedKan):
         meld = _upgrade_pon(player, choice.tile)
         emit(Call(MeldType.SHOUMINKAN, seat, seat, meld.tiles))
-        immediate = state.rules.open_kan_indicator_immediate
-    else:
+    elif isinstance(choice, ClosedKan):
+        _flush_deferred_reveals(state, emit)  # a closed kan turns a deferred indicator before it shows
         meld = _form_closed_kan(player, choice.kind)
         emit(Call(MeldType.ANKAN, seat, seat, meld.tiles))
+    else:
+        _set_aside_north(player)
+        emit(NorthExtraction(seat, Tile(TileKind.NORTH)))
+
+
+def _complete_kan(state: GameState, seat: int, choice: Action, emit: Emit) -> None:
+    """Complete an unrobbed closed or added kan: count, reveal, and replacement draw."""
+    _flush_deferred_reveals(state, emit)  # an added kan settles a deferred indicator once nobody robs it
+    if isinstance(choice, AddedKan):
+        immediate = state.rules.open_kan_indicator_immediate
+    else:
         immediate = state.rules.closed_kan_indicator_immediate
     state.kans += 1
     _reveal_dora(state, emit, immediate=immediate)
+    player = state.players[seat]
     player.drawn = state.wall.draw_replacement()
     emit(Draw(seat, player.drawn, replacement=True))
 
@@ -385,16 +397,19 @@ def _upgrade_pon(player: PlayerState, added: Tile) -> Meld:
     raise RuntimeError("no pon to add to")  # pragma: no cover
 
 
-def _complete_nuki(state: GameState, seat: int, emit: Emit) -> None:
-    """Set aside a North and take a replacement draw."""
-    _flush_deferred_reveals(state, emit)  # a North extraction settles any deferred indicator
-    player = state.players[seat]
+def _set_aside_north(player: PlayerState) -> None:
+    """Move a North out of the hand and count it."""
     _remove_tile(player, Tile(TileKind.NORTH))
     if player.drawn is not None:  # the North came from the concealed hand; retire the drawn tile
         player.concealed.append(player.drawn)
         player.drawn = None
     player.nuki_count += 1
-    emit(NorthExtraction(seat, Tile(TileKind.NORTH)))
+
+
+def _complete_nuki(state: GameState, seat: int, emit: Emit) -> None:
+    """Complete an unrobbed North extraction with its replacement draw."""
+    _flush_deferred_reveals(state, emit)  # a North extraction settles any deferred indicator
+    player = state.players[seat]
     player.drawn = state.wall.draw_replacement()
     emit(Draw(seat, player.drawn, replacement=True))
 
@@ -536,7 +551,7 @@ def _redirect_after_call(state: GameState, caller: int, choice: Action, tile: Ti
 def _robbing_window(
     state: GameState, actor: int, tile: Tile, mode: _RobMode, emit: Emit
 ) -> Generator[DecisionPoint, Action, _Terminal | None]:
-    """Offer ron on a kan or North tile before the act completes."""
+    """Offer ron on a shown kan or North tile before the act completes."""
     ron_seats: list[int] = []
     for seat in _opponents(state, actor):
         actions = _rob_reactions(state, seat, tile, mode)

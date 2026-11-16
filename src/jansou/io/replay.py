@@ -380,15 +380,13 @@ class _Script:
             wanted = self._tenpai(point.seat)
         else:  # the robbed-kan and North windows share the robbing shape
             wanted = self._rob_reaction(point.seat)
-        candidates = wanted if isinstance(wanted, tuple) else (wanted,)
-        for candidate in candidates:
-            for action in point.actions:
-                if action == candidate:
-                    return action
+        for action in point.actions:
+            if action == wanted:
+                return action
         index, _ = self._peek()
-        raise self._error(f"the recorded choice {candidates!r} is not among the offered actions", index)
+        raise self._error(f"the recorded choice {wanted!r} is not among the offered actions", index)
 
-    def _self_action(self, seat: int) -> Action | tuple[Action, ...]:
+    def _self_action(self, seat: int) -> Action:
         """The turn holder's recorded action: a discard, a kan, a North, or the end."""
         index, logged = self._peek()
         if logged is None:
@@ -404,17 +402,11 @@ class _Script:
             return Nuki()
         raise self._error(f"seat {seat} is to act but the record continues with {logged!r}", index)
 
-    def _self_ending(self, seat: int) -> Action | tuple[Action, ...]:
+    def _self_ending(self, seat: int) -> Action:
         """The action behind a record whose events end on this seat's turn."""
         if not isinstance(self._outcome, Ryuukyoku):
             if any(agari.winner == seat and agari.is_tsumo for agari in self._outcome):
                 return Tsumo()
-            if any(not agari.is_tsumo for agari in self._outcome):
-                # A robbed kan or North some records never complete: the engine's
-                # own records stop at the attempt, so rebuild it from the robbed
-                # tile and let the menu pick the shape.
-                tile = self._outcome[0].winning_tile
-                return (AddedKan(tile), ClosedKan(tile.kind), Nuki())
         elif canonical_kind(self._outcome.kind) == "yao9":
             return NineTerminals()
         raise self._error(f"the record ends with seat {seat} still to act")
@@ -447,16 +439,9 @@ class _Script:
         return Pon((first, second)) if meld.type is MeldType.PON else Chii((first, second))
 
     def _rob_reaction(self, seat: int) -> Action:
-        """A seat's recorded answer to a robbable kan or North, before it completes."""
+        """A seat's recorded answer to a shown kan or North: a robbed one ends the record."""
         _, logged = self._peek()
-        if logged is None:
-            # A first robber already consumed the kan or North event.
-            return Ron() if self._won_by_ron(seat) else Pass()
-        _, following = self._peek(1)
-        if following is None and self._won_by_ron(seat):
-            self._cursor += 1  # the robbed kan or North is never completed or emitted
-            return Ron()
-        return Pass()
+        return Ron() if logged is None and self._won_by_ron(seat) else Pass()
 
     def _tenpai(self, seat: int) -> Action:
         """A seat's recorded readiness declaration at the exhaustive draw."""
@@ -473,12 +458,11 @@ class _Script:
 
     # -- Cursor plumbing --
 
-    def _peek(self, offset: int = 0) -> tuple[int | None, Event | None]:
-        """The record event at the cursor plus an offset, or None past the end."""
-        position = self._cursor + offset
-        if position >= len(self._steps):
+    def _peek(self) -> tuple[int | None, Event | None]:
+        """The record event at the cursor, or None past the end."""
+        if self._cursor >= len(self._steps):
             return None, None
-        return self._steps[position]
+        return self._steps[self._cursor]
 
     def _take(self, what: str) -> tuple[int, Event]:
         """Consume and return the next record event, failing past the end."""

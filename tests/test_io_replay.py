@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import pytest
 
-from jansou.core.hand import CallSource, Meld, MeldType
+from jansou.core.hand import MeldType
 from jansou.core.notation import parse_mpsz
 from jansou.core.rules import Rules, preset
 from jansou.core.tiles import Tile, TileKind, Wind, full_tile_set
@@ -26,16 +26,21 @@ from jansou.game.actions import (
 )
 from jansou.game.agents import Agent, RandomAgent
 from jansou.game.environment import Environment
-from jansou.game.events import DealStart
+from jansou.game.events import Call as GameCall
+from jansou.game.events import DealStart, NorthExtraction
 from jansou.game.events import Draw as GameDraw
 from jansou.game.flow import DecisionKind, play_deal
 from jansou.game.state import GameState, PlayerState
 from jansou.game.wall import Wall
 from jansou.io.from_game import paifu_from_game, paifu_from_records
-from jansou.io.paifu import Agari, DoraReveal, Draw, Paifu, RoundLog, Ryuukyoku
+from jansou.io.mjai import dump_mjai, parse_mjai
+from jansou.io.mjlog import dump_mjlog, parse_mjlog
+from jansou.io.paifu import Agari, DoraReveal, Draw, Kita, Paifu, RoundLog, Ryuukyoku
 from jansou.io.paifu import Call as RecordCall
 from jansou.io.paifu import Discard as RecordDiscard
 from jansou.io.replay import ReplayError, replay_paifu, replay_round_decisions
+from jansou.io.tenhou_json import dump_tenhou_json, parse_tenhou_json
+from jansou.validation.check import check_paifu
 
 _CLAIMS = (Pon, Chii, OpenKan, Ron)
 _REACTION_KINDS = (DecisionKind.DISCARD_REACTION, DecisionKind.ROBBED_KAN, DecisionKind.NORTH_REACTION)
@@ -222,23 +227,48 @@ class TestScriptedRounds:
         robbed = [decision for decision in replayed if decision.request.kind is DecisionKind.ROBBED_KAN]
         assert [type(decision.chosen) for decision in robbed] == [Ron, Pass]
 
-    def test_chankan_with_the_call_recorded(self) -> None:
-        # An mjlog-style record keeps the robbed kan's call; the engine's own
-        # record stops at the attempt. Both must replay to the same decisions.
+    def test_robbed_kan_is_shown_before_the_rob(self) -> None:
         paifu, replayed = self._chankan_paifu()
-        meld = Meld(
-            MeldType.SHOUMINKAN,
-            tuple(parse_mpsz("5555s")),
-            called=Tile(TileKind.S5),
-            source=CallSource.KAMICHA,
-            added=Tile(TileKind.S5),
-        )
-        round_log = replace(paifu.rounds[0], events=(*paifu.rounds[0].events, RecordCall(0, meld)))
-        recorded_style = replace(paifu, rounds=(round_log,))
-        again = list(replay_paifu(recorded_style))
-        assert [(d.request.seat, d.request.kind, d.request.actions, d.chosen) for d in again] == [
-            (d.request.seat, d.request.kind, d.request.actions, d.chosen) for d in replayed
+        # The record ends on the robbed kan's call, and the first robbing seat's request carries it.
+        last = paifu.rounds[0].events[-1]
+        assert isinstance(last, RecordCall)
+        assert last.meld.type is MeldType.SHOUMINKAN
+        robbing = next(decision for decision in replayed if decision.request.kind is DecisionKind.ROBBED_KAN)
+        assert [event.meld_type for event in robbing.request.events if isinstance(event, GameCall)] == [
+            MeldType.SHOUMINKAN
         ]
+
+    def test_robbed_kan_record_scores_through_every_writer(self) -> None:
+        # The chankan yaku comes back only when the record holds the robbed kan.
+        paifu, _ = self._chankan_paifu()
+        writers = [
+            (dump_mjlog, lambda text: parse_mjlog(text.encode())),
+            (dump_tenhou_json, parse_tenhou_json),
+            (dump_mjai, parse_mjai),
+        ]
+        for game in [paifu, *(parse(dump(paifu)) for dump, parse in writers)]:
+            verdicts = check_paifu(game)
+            assert [verdict.passed for verdict in verdicts] == [True], [verdict.detail for verdict in verdicts]
+
+    def test_kokushi_robs_a_closed_kan(self) -> None:
+        hands = [
+            "111m234p567p789p9s",  # closed-kans the drawn fourth 1m
+            "9m19p19s12345677z",  # waits on the 1m alone
+            "258m258p258s2345z",
+            "258m258p258s2345z",
+        ]
+
+        def decide(seat: int, kind: DecisionKind, actions: list) -> object:
+            _ = seat
+            if kind is DecisionKind.SELF:
+                return _first(actions, ClosedKan) or _tsumogiri(actions)
+            return _first(actions, Ron) or Pass()
+
+        rules = Rules(aka_dora=False, kokushi_ankan_chankan=True)
+        paifu, replayed = _scripted_round(hands, decide, rules=rules, pins={"i14": "1m"})
+        assert isinstance(paifu.rounds[0].events[-1], RecordCall)
+        assert replayed[-1].request.kind is DecisionKind.ROBBED_KAN
+        assert isinstance(replayed[-1].chosen, Ron)
 
     def test_declined_chankan_completes_the_kan(self) -> None:
         hands = [
@@ -363,12 +393,16 @@ class TestScriptedRounds:
             return _first(actions, Ron) or Pass()
 
         rules = replace(preset("tenhou-3p"), aka_dora=False)
-        _, replayed = _scripted_round(hands, decide, rules=rules)
-        # The robbed extraction never completes, so the record ends at the
-        # attempt and the replay rebuilds it from the winning tile.
+        paifu, replayed = _scripted_round(hands, decide, rules=rules)
+        # The record ends on the robbed extraction, and the robbing seat's request carries it.
+        assert isinstance(paifu.rounds[0].events[-1], Kita)
         assert isinstance(replayed[-2].chosen, Nuki)
         assert replayed[-1].request.kind is DecisionKind.NORTH_REACTION
+        assert any(isinstance(event, NorthExtraction) for event in replayed[-1].request.events)
         assert isinstance(replayed[-1].chosen, Ron)
+        for game in (paifu, parse_mjlog(dump_mjlog(paifu).encode()), parse_mjai(dump_mjai(paifu))):
+            verdicts = check_paifu(game)
+            assert [verdict.passed for verdict in verdicts] == [True], [verdict.detail for verdict in verdicts]
 
 
 # --- Masking and observation ----------------------------------------------------
@@ -460,6 +494,20 @@ class TestDirtyRecords:
         tampered = _tampered(paifu, 0, events=paifu.rounds[0].events[:1])
         with pytest.raises(ReplayError, match="still to act"):
             list(replay_round_decisions(tampered, 0))
+
+    def test_truncated_before_a_ron(self, draw_game: Environment) -> None:
+        paifu = paifu_from_game(draw_game)
+        ron = (Agari(winner=1, from_seat=0, winning_tile=Tile(TileKind.M1)),)
+        tampered = _tampered(paifu, 0, events=paifu.rounds[0].events[:1], outcome=ron)
+        with pytest.raises(ReplayError, match="still to act"):
+            list(replay_round_decisions(tampered, 0))
+
+    def test_missing_discard(self, draw_game: Environment) -> None:
+        paifu = paifu_from_game(draw_game)
+        events = list(paifu.rounds[0].events)
+        del events[next(index for index, event in enumerate(events) if isinstance(event, RecordDiscard))]
+        with pytest.raises(ReplayError, match="is to act but the record continues"):
+            list(replay_round_decisions(_tampered(paifu, 0, events=tuple(events)), 0))
 
     def test_desynchronized_draws(self, draw_game: Environment) -> None:
         paifu = paifu_from_game(draw_game)
