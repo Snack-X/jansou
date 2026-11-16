@@ -22,7 +22,7 @@
 | src/jansou/game/agents.py             |      204 |        0 |       64 |        0 |     100% |           |
 | src/jansou/game/environment.py        |       57 |        0 |       10 |        0 |     100% |           |
 | src/jansou/game/events.py             |       78 |        0 |        2 |        0 |     100% |           |
-| src/jansou/game/flow.py               |      523 |        0 |      170 |        0 |     100% |           |
+| src/jansou/game/flow.py               |      531 |        0 |      174 |        0 |     100% |           |
 | src/jansou/game/progression.py        |       63 |        0 |       26 |        0 |     100% |           |
 | src/jansou/game/state.py              |       75 |        0 |        6 |        0 |     100% |           |
 | src/jansou/game/wall.py               |       39 |        0 |        8 |        0 |     100% |           |
@@ -31,7 +31,7 @@
 | src/jansou/io/mjai.py                 |      170 |        0 |       68 |        0 |     100% |           |
 | src/jansou/io/mjlog.py                |      281 |        0 |       86 |        0 |     100% |           |
 | src/jansou/io/paifu.py                |      201 |        0 |       42 |        0 |     100% |           |
-| src/jansou/io/replay.py               |      215 |        0 |       78 |        0 |     100% |           |
+| src/jansou/io/replay.py               |      227 |        0 |       88 |        0 |     100% |           |
 | src/jansou/io/tenhou\_json.py         |      208 |        0 |       70 |        0 |     100% |           |
 | src/jansou/io/tiles.py                |       34 |        0 |       12 |        0 |     100% |           |
 | src/jansou/scoring/\_\_init\_\_.py    |        0 |        0 |        0 |        0 |     100% |           |
@@ -42,7 +42,7 @@
 | src/jansou/validation/\_\_init\_\_.py |        0 |        0 |        0 |        0 |     100% |           |
 | src/jansou/validation/check.py        |       27 |        0 |        4 |        0 |     100% |           |
 | src/jansou/validation/cli.py          |      129 |        0 |       44 |        0 |     100% |           |
-| **TOTAL**                             | **4257** |    **0** | **1290** |    **0** | **100%** |           |
+| **TOTAL**                             | **4277** |    **0** | **1304** |    **0** | **100%** |           |
 
 
 ## Setup coverage badge
