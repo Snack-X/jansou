@@ -1,6 +1,6 @@
 [project]
 name = "jansou"
-version = "0.15.0"
+version = "0.15.1"
 description = "Riichi Mahjong Environments and Utilities"
 authors = [
     { name = "Jaemin Noh", email = "korsnack@korsnack.kr" }
