@@ -7,7 +7,7 @@ from itertools import pairwise
 import pytest
 
 from jansou.analysis import _native
-from jansou.analysis.ev import Outlook, Valuation, _build, _GraphCache, discard_outlooks, hand_outlook, outlook
+from jansou.analysis.ev import Outlook, Valuation, _build, _Graph, _GraphCache, discard_outlooks, hand_outlook, outlook
 from jansou.analysis.shanten import discard_shantens, shanten_counts
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
@@ -340,6 +340,23 @@ class TestGraphCache:
         key = ("only",)
         built = cache.get(key, lambda: _build(tuple(counts("123m456m789m13p55s")), 0, 4, 6, None))
         assert cache.get(key, lambda: pytest.fail("should not rebuild")) is built
+
+    def test_a_key_stored_during_its_build_keeps_the_first_graph(self) -> None:
+        # Two threads can build one key at once; the later store must not count its hands twice.
+        cache = _GraphCache(limit=10_000)
+        key = ("raced",)
+
+        def build() -> _Graph:
+            return _build(tuple(counts("123m456m789m13p55s")), 0, 4, 6, None)
+
+        first: list[_Graph] = []
+
+        def build_after_a_rival() -> _Graph:
+            first.append(cache.get(key, build))
+            return build()
+
+        assert cache.get(key, build_after_a_rival) is first[0]
+        assert cache._states == len(first[0].counts)
 
 
 class TestVisibleBlindGraph:

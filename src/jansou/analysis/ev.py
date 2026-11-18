@@ -31,6 +31,7 @@ estimate of it.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -293,6 +294,7 @@ class _GraphCache:
         self._limit = limit
         self._held: dict[tuple[object, ...], _Graph] = {}
         self._states = 0
+        self._lock = threading.Lock()
 
     def get(self, key: tuple[object, ...], build: Callable[[], _Graph]) -> _Graph:
         """The cached graph for this key, building and storing it if absent."""
@@ -300,11 +302,13 @@ class _GraphCache:
         if found is not None:
             return found
         built = build()
-        self._held[key] = built
-        self._states += len(built.counts)
-        while self._states > self._limit and len(self._held) > 1:
-            self._states -= len(self._held.pop(next(iter(self._held))).counts)
-        return built
+        with self._lock:
+            stored = self._held.setdefault(key, built)
+            if stored is built:  # another thread may have stored this key first
+                self._states += len(built.counts)
+                while self._states > self._limit and len(self._held) > 1:
+                    self._states -= len(self._held.pop(next(iter(self._held))).counts)
+        return stored
 
 
 _CACHE = _GraphCache(_GRAPH_CACHE_STATES)

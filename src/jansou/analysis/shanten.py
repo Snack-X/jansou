@@ -21,10 +21,10 @@ for a missing table file and for counts past the four-copy radix.
 
 from __future__ import annotations
 
+import threading
 import zlib
 from contextlib import suppress
 from importlib import resources
-from itertools import islice
 from typing import TYPE_CHECKING
 
 from jansou.analysis import _native
@@ -118,13 +118,19 @@ _VECTOR_CLASSES: dict[tuple[int, ...], int] = {}
 _BLOCK_CLASSES: dict[tuple[int, ...], int] = {}
 _MERGED_CLASSES: dict[tuple[int, int], int] = {}
 
+# Serialises the writers that are not atomic on their own, so threads can share
+# the tables and memos. Lookups and plain inserts stay lock-free.
+_WRITE_LOCK = threading.Lock()
+
 
 def _intern(vector: tuple[int, ...]) -> int:
     """The class of a vector, registering it on first sight."""
-    got = _VECTOR_CLASSES.get(vector)
-    if got is None:
-        got = _VECTOR_CLASSES[vector] = len(_VECTORS)
-        _VECTORS.append(vector)
+    with _WRITE_LOCK:
+        got = _VECTOR_CLASSES.get(vector)
+        if got is None:
+            got = len(_VECTORS)
+            _VECTORS.append(vector)  # before the class is published, so a reader can index it
+            _VECTOR_CLASSES[vector] = got
     return got
 
 
@@ -365,8 +371,11 @@ _COUNT_MEMO: dict[tuple[bytes, int], int] = {}
 
 def _trim(memo: dict, limit: int) -> None:
     """Drop an oldest batch once a memo passes its limit, amortising eviction."""
-    for key in list(islice(iter(memo), limit // 8)):
-        del memo[key]
+    with _WRITE_LOCK:
+        if len(memo) > limit:  # another thread may have trimmed first
+            # A whole-key snapshot is one atomic step; a lazy iterator breaks on a concurrent insert.
+            for key in list(memo)[: limit // 8]:
+                del memo[key]
 
 
 def _table_bytes() -> bytes:

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import random
+import sys
+import threading
 import zlib
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -22,6 +25,9 @@ from jansou.analysis.shanten import is_complete as hand_complete
 from jansou.core.hand import CallSource, Hand, Meld, MeldType
 from jansou.core.notation import parse_mpsz
 from jansou.core.tiles import NUM_KINDS, TILES_PER_KIND, YAOCHUU_KINDS, counts_by_kind
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 _INF = 99
 
@@ -493,6 +499,68 @@ class TestTablePath:
                 probe_shantens(c, num_melds, 1)
         assert len(shanten_module._PROBE_MEMO) <= 8 + 1
         assert len(shanten_module._COUNT_MEMO) <= 8 + 1
+
+    def test_trim_drops_the_oldest_batch(self) -> None:
+        memo = dict.fromkeys(range(17))
+        shanten_module._trim(memo, 16)
+        assert list(memo) == list(range(2, 17))
+
+    def test_trim_leaves_a_memo_within_its_limit(self) -> None:
+        # The thread that loses the race to trim finds the memo already cut.
+        memo = dict.fromkeys(range(16))
+        shanten_module._trim(memo, 16)
+        assert len(memo) == 16
+
+
+@pytest.fixture
+def eager_switching() -> Iterator[None]:
+    """Switch threads as often as the interpreter allows, to surface races."""
+    interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    yield
+    sys.setswitchinterval(interval)
+
+
+def _run_threads(work: Callable[[int], None], count: int = 8) -> None:
+    threads = [threading.Thread(target=work, args=(worker,)) for worker in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
+@pytest.mark.usefixtures("eager_switching")
+class TestSharedByThreads:
+    """Threads of one process share the tables and memos."""
+
+    def test_trim_survives_concurrent_inserts(self) -> None:
+        memo: dict[tuple[int, int], int] = {}
+        errors: list[Exception] = []
+
+        def fill(worker: int) -> None:
+            try:
+                for step in range(5_000):
+                    memo[worker, step] = step
+                    if len(memo) > 64:
+                        shanten_module._trim(memo, 64)
+            except (KeyError, RuntimeError) as error:
+                errors.append(error)
+
+        _run_threads(fill)
+        assert not errors
+        assert len(memo) <= 64 + 8
+
+    def test_interned_classes_stay_distinct(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(shanten_module, "_VECTORS", [])
+        monkeypatch.setattr(shanten_module, "_VECTOR_CLASSES", {})
+
+        def intern(worker: int) -> None:
+            for step in range(20_000):
+                shanten_module._intern((worker % 4, step))
+
+        _run_threads(intern)
+        assert len(shanten_module._VECTORS) == 4 * 20_000
+        assert all(shanten_module._VECTORS[cls] == vector for vector, cls in shanten_module._VECTOR_CLASSES.items())
 
 
 class TestTableLifecycle:
